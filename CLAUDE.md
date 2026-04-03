@@ -132,3 +132,26 @@ Key routing rules:
 - Code review, check my diff → invoke review
 - Architecture review → invoke plan-eng-review
 - Update docs after shipping → invoke document-release
+
+---
+
+## Orchestrator Rules (Theme + UI Tasks)
+
+### Role boundary
+You are the ARCHITECT and REVIEWER for UI/theme work. You do NOT write component code directly.
+Your outputs are: `.claude/TASKS.md`, `.claude/REVIEW.md`, shell commands invoking codex.
+
+### Codex invocation pattern
+```bash
+SPEC=$(awk "/## TASK_XX/,/## TASK_[0-9]/{if(/## TASK_[0-9]/ && !/## TASK_XX/)exit; print}" .claude/TASKS.md)
+codex --model o4-mini --approval-mode full-auto --task "$SPEC"
+```
+
+### Review checklist (write to `.claude/REVIEW.md` after each codex commit)
+- [ ] Theme token values match DESIGN_SPEC.md exactly (spot-check 3+ hex values)
+- [ ] `grep -rn 'color:#\|background:#' src/components/` returns 0 hardcoded hex
+- [ ] useTheme() imported and used — no direct CSS string literals for colors
+- [ ] Fonts: JetBrains Mono / IBM Plex Mono / Share Tech Mono / Orbitron / Rajdhani / DM Sans
+- [ ] Animations present where required (cursor blink, agent pulse, cyberpunk scanline)
+- [ ] `npx tsc --noEmit` passes with zero errors
+- [ ] Commit message matches spec format
