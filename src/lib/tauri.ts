@@ -108,6 +108,104 @@ export function startZmodemSend(
   return invoke("start_zmodem_send", { sessionId, fileName, fileData });
 }
 
+// ── SFTP commands ─────────────────────────────────────────────────────────────
+
+export interface SftpEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size: number;
+  modified?: number;
+}
+
+export function listSftpDir(sessionId: string, path: string): Promise<SftpEntry[]> {
+  return invoke("list_sftp_dir", { sessionId, path });
+}
+
+export function downloadSftpFile(sessionId: string, path: string): Promise<number[]> {
+  return invoke("download_sftp_file", { sessionId, path });
+}
+
+export function uploadSftpFile(sessionId: string, path: string, data: number[]): Promise<void> {
+  return invoke("upload_sftp_file", { sessionId, path, data });
+}
+
+export function mkdirSftp(sessionId: string, path: string): Promise<void> {
+  return invoke("mkdir_sftp", { sessionId, path });
+}
+
+export function deleteSftp(sessionId: string, path: string, isDir: boolean): Promise<void> {
+  return invoke("delete_sftp", { sessionId, path, isDir });
+}
+
+export function renameSftp(sessionId: string, from: string, to: string): Promise<void> {
+  return invoke("rename_sftp", { sessionId, from, to });
+}
+
+// ── Health commands ───────────────────────────────────────────────────────────
+
+export interface HealthData {
+  load_1m: number;
+  cpu_count: number;
+  status: "green" | "yellow" | "red";
+}
+
+export function startHealthMonitor(sessionId: string, intervalSecs?: number): Promise<void> {
+  return invoke("start_health_monitor", { sessionId, intervalSecs });
+}
+
+export function getServerHealth(sessionId: string): Promise<HealthData | null> {
+  return invoke("get_server_health", { sessionId });
+}
+
+// ── Recording commands ────────────────────────────────────────────────────────
+
+export interface RecordingInfo {
+  path: string;
+  size_bytes: number;
+  filename: string;
+}
+
+export function startRecording(sessionId: string): Promise<string> {
+  return invoke("start_recording", { sessionId });
+}
+
+export function stopRecording(sessionId: string): Promise<void> {
+  return invoke("stop_recording", { sessionId });
+}
+
+export function listSessionRecordings(): Promise<RecordingInfo[]> {
+  return invoke("list_session_recordings");
+}
+
+// ── History commands ──────────────────────────────────────────────────────────
+
+export interface HistoryEntry {
+  id: number;
+  ts: string;
+  session_id: string;
+  hostname: string;
+  command: string;
+}
+
+export function searchCommandHistory(query: string, limit?: number): Promise<HistoryEntry[]> {
+  return invoke("search_command_history", { query, limit });
+}
+
+export function recentCommandHistory(limit?: number): Promise<HistoryEntry[]> {
+  return invoke("recent_command_history", { limit });
+}
+
+// ── Agent commands ────────────────────────────────────────────────────────────
+
+export function getContext(sessionId: string, lineCount?: number): Promise<string> {
+  return invoke("get_context", { sessionId, lineCount });
+}
+
+export function executeApprovedCommand(sessionId: string, command: string): Promise<void> {
+  return invoke("execute_approved_command", { sessionId, command });
+}
+
 // ── Events ────────────────────────────────────────────────────────────────────
 
 /**
@@ -131,4 +229,20 @@ export function onSessionDisconnected(
   callback: () => void
 ): Promise<UnlistenFn> {
   return listen(`session-disconnected-${sessionId}`, () => callback());
+}
+
+/** Subscribe to server health updates. */
+export function onHealthUpdate(
+  sessionId: string,
+  callback: (data: HealthData) => void
+): Promise<UnlistenFn> {
+  return listen<HealthData>(`health-update-${sessionId}`, (e) => callback(e.payload));
+}
+
+/** Subscribe to recording stopped events (e.g. size limit). */
+export function onRecordingStopped(
+  sessionId: string,
+  callback: (reason: string) => void
+): Promise<UnlistenFn> {
+  return listen<string>(`recording-stopped-${sessionId}`, (e) => callback(e.payload));
 }

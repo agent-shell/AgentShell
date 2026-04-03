@@ -6,7 +6,7 @@
  *
  * This file wires up the top-level layout. Individual panels are in components/.
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "@xterm/xterm/css/xterm.css";
 import "./index.css";
 import { ThemeProvider, useTheme } from "./ThemeProvider";
@@ -15,9 +15,22 @@ import { QuickConnect } from "./components/profiles/QuickConnect";
 import { ProfileList } from "./components/profiles/ProfileList";
 import { AIPanel, type ChatMessage, type CommandProposal } from "./components/AIPanel";
 import { ThemeSwitcher } from "./components/ThemeSwitcher";
-import { connectLocalShell, getScrollback } from "./lib/tauri";
+import {
+  connectLocalShell,
+  getScrollback,
+  executeApprovedCommand,
+  startHealthMonitor,
+  onHealthUpdate,
+  type HealthData,
+  startRecording,
+  stopRecording,
+  onRecordingStopped,
+} from "./lib/tauri";
 import { AIClient, PROPOSE_COMMAND_TOOL, type AISettings } from "./lib/ai/client";
 import { extractProposals } from "./lib/ai/streamParser";
+import { SettingsPanel, loadAISettings } from "./components/settings/SettingsPanel";
+import { SftpPanel } from "./components/sftp/SftpPanel";
+import { HistorySearch } from "./components/history/HistorySearch";
 
 interface ActiveSession {
   sessionId: string;
@@ -33,9 +46,26 @@ function AppShell() {
   const [aiMessages, setAiMessages] = useState<ChatMessage[]>([]);
   const [aiProposals, setAiProposals] = useState<CommandProposal[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
-  const [claudeApiKey, setClaudeApiKey] = useState(() => localStorage.getItem("agentshell-claude-key") ?? "");
-  const [showKeyInput, setShowKeyInput] = useState(false);
-  const aiSettings: AISettings = { backend: "claude", claudeApiKey, claudeModel: "claude-sonnet-4-6" };
+  const [aiSettings, setAiSettings] = useState<AISettings>(() => loadAISettings());
+  const [showSettings, setShowSettings] = useState(false);
+  const [showSftp, setShowSftp] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+
+  // Ctrl+R — open history search
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.ctrlKey && e.key === "r") {
+        e.preventDefault();
+        setShowHistory(true);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  // Per-session health: sessionId → HealthData
+  const [healthMap, setHealthMap] = useState<Record<string, HealthData>>({});
+  // Per-session recording: sessionId → file path | null
+  const [recordingMap, setRecordingMap] = useState<Record<string, string | null>>({});
 
   function handleConnected(sessionId: string, label: string) {
     setSessions((prev) => {
@@ -43,6 +73,16 @@ function AppShell() {
       setActiveIdx(next.length - 1);
       return next;
     });
+    // Start health monitor for SSH sessions (local shell won't have the transport, it will just fail quietly)
+    startHealthMonitor(sessionId, 60).catch(() => {});
+    // Subscribe to health events
+    onHealthUpdate(sessionId, (data) => {
+      setHealthMap((prev) => ({ ...prev, [sessionId]: data }));
+    }).catch(() => {});
+    // Subscribe to recording stop events
+    onRecordingStopped(sessionId, () => {
+      setRecordingMap((prev) => ({ ...prev, [sessionId]: null }));
+    }).catch(() => {});
   }
 
   async function handleLocalShell() {
@@ -51,6 +91,17 @@ function AppShell() {
       handleConnected(result.session_id, "local shell");
     } catch (err) {
       console.error("local shell failed:", err);
+    }
+  }
+
+  async function handleToggleRecording(sessionId: string) {
+    const current = recordingMap[sessionId];
+    if (current) {
+      await stopRecording(sessionId).catch(console.error);
+      setRecordingMap((prev) => ({ ...prev, [sessionId]: null }));
+    } else {
+      const path = await startRecording(sessionId).catch((e) => { console.error(e); return null; });
+      if (path) setRecordingMap((prev) => ({ ...prev, [sessionId]: path }));
     }
   }
 
@@ -128,7 +179,11 @@ function AppShell() {
     setAiProposals((prev) =>
       prev.filter((p) => p.command !== proposal.command || p.riskLevel !== proposal.riskLevel)
     );
-    // execute_approved_command IPC wired in Step 9 (Rust executor)
+    if (activeSession) {
+      executeApprovedCommand(activeSession.sessionId, proposal.command).catch((err) =>
+        console.error("execute_approved_command failed:", err)
+      );
+    }
   }
 
   return (
@@ -177,19 +232,19 @@ function AppShell() {
           </h1>
           <div style={{ display: 'flex', gap: 4 }}>
             <button
-              onClick={() => setShowKeyInput((v) => !v)}
-              title="Set Claude API key"
+              onClick={() => setShowSettings((v) => !v)}
+              title="AI settings"
               style={{
                 background: 'transparent',
                 border: 'none',
                 cursor: 'pointer',
                 fontSize: 11,
-                color: claudeApiKey ? c.green : c.textMuted,
+                color: aiSettings.claudeApiKey || aiSettings.backend !== 'claude' ? c.green : c.textMuted,
                 lineHeight: 1,
                 padding: '2px 4px',
               }}
             >
-              🔑
+              ⚙
             </button>
             <button
               onClick={() => setShowThemeSwitcher((v) => !v)}
@@ -209,35 +264,13 @@ function AppShell() {
           </div>
         </div>
 
-        {/* API key input (collapsible) */}
-        {showKeyInput && (
-          <div style={{ padding: '8px 12px', borderBottom: `1px solid ${c.sidebarBorder}` }}>
-            <div style={{ fontSize: 9, color: c.textDim, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4, fontFamily: 'var(--font-ui)' }}>
-              Claude API Key
-            </div>
-            <input
-              type="password"
-              value={claudeApiKey}
-              onChange={(e) => {
-                setClaudeApiKey(e.target.value);
-                localStorage.setItem("agentshell-claude-key", e.target.value);
-              }}
-              placeholder="sk-ant-..."
-              style={{
-                width: '100%',
-                padding: '4px 8px',
-                fontSize: 10,
-                fontFamily: 'var(--font-shell)',
-                background: c.terminalBg,
-                border: `1px solid ${c.sidebarBorder}`,
-                borderRadius: 3,
-                color: c.pageText,
-                outline: 'none',
-                boxSizing: 'border-box',
-              }}
-              autoComplete="off"
-            />
-          </div>
+        {/* AI settings panel (collapsible) */}
+        {showSettings && (
+          <SettingsPanel
+            settings={aiSettings}
+            onChange={(updated) => setAiSettings(updated)}
+            onClose={() => setShowSettings(false)}
+          />
         )}
 
         {/* Theme switcher (collapsible) */}
@@ -287,50 +320,105 @@ function AppShell() {
               flexShrink: 0,
             }}
           >
-            {sessions.map((s, i) => (
+            {sessions.map((s, i) => {
+              const health = healthMap[s.sessionId];
+              const dotColor = health
+                ? (health.status === "green" ? c.green : health.status === "yellow" ? "#fbbf24" : c.red)
+                : "transparent";
+              return (
+                <button
+                  key={s.sessionId}
+                  onClick={() => setActiveIdx(i)}
+                  style={{
+                    padding: '8px 12px',
+                    fontSize: 10.5,
+                    whiteSpace: 'nowrap',
+                    borderRight: `1px solid ${c.sidebarBorder}`,
+                    background: i === activeIdx ? c.terminalBg : 'transparent',
+                    color: i === activeIdx ? c.pageText : c.textMuted,
+                    border: 'none',
+                    borderBottom: i === activeIdx ? `1px solid ${c.accent}` : `1px solid transparent`,
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-ui)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                  }}
+                >
+                  {health && (
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor, flexShrink: 0, display: 'inline-block' }} />
+                  )}
+                  {s.label}
+                </button>
+              );
+            })}
+          {/* Tab bar right-side controls */}
+          {activeSession && (
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, paddingRight: 4 }}>
+              {/* Record toggle */}
               <button
-                key={s.sessionId}
-                onClick={() => setActiveIdx(i)}
+                onClick={() => handleToggleRecording(activeSession.sessionId)}
+                title={recordingMap[activeSession.sessionId] ? "Stop recording" : "Start recording"}
                 style={{
-                  padding: '8px 12px',
-                  fontSize: 10.5,
-                  whiteSpace: 'nowrap',
-                  borderRight: `1px solid ${c.sidebarBorder}`,
-                  background: i === activeIdx ? c.terminalBg : 'transparent',
-                  color: i === activeIdx ? c.pageText : c.textMuted,
+                  background: 'transparent',
                   border: 'none',
-                  borderBottom: i === activeIdx ? `1px solid ${c.accent}` : `1px solid transparent`,
                   cursor: 'pointer',
-                  fontFamily: 'var(--font-ui)',
+                  fontSize: 11,
+                  color: recordingMap[activeSession.sessionId] ? c.red : c.textMuted,
+                  padding: '2px 5px',
                 }}
               >
-                {s.label}
+                {recordingMap[activeSession.sessionId] ? "⏹" : "⏺"}
               </button>
-            ))}
+              {/* History search */}
+              <button
+                onClick={() => setShowHistory(true)}
+                title="Search command history (Ctrl+R)"
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 11, color: c.textMuted, padding: '2px 5px' }}
+              >
+                ⌕
+              </button>
+              {/* SFTP toggle */}
+              <button
+                onClick={() => setShowSftp((v) => !v)}
+                title="Toggle SFTP panel"
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 11, color: showSftp ? c.accent : c.textMuted, padding: '2px 5px' }}
+              >
+                SFTP
+              </button>
+            </div>
+          )}
           </div>
         )}
 
-        {/* Terminal panel */}
-        <div style={{ flex: 1, overflow: 'hidden' }}>
-          {activeSession ? (
-            <TerminalView
-              key={activeSession.sessionId}
-              sessionId={activeSession.sessionId}
-              onDisconnected={() => handleDisconnected(activeSession.sessionId)}
-            />
-          ) : (
-            <div
-              style={{
-                height: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: c.textMuted,
-                fontSize: 13,
-                fontFamily: 'var(--font-ui)',
-              }}
-            >
-              Use the sidebar to connect to a server.
+        {/* Terminal + optional SFTP split */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ flex: showSftp && activeSession ? '0 0 55%' : 1, overflow: 'hidden' }}>
+            {activeSession ? (
+              <TerminalView
+                key={activeSession.sessionId}
+                sessionId={activeSession.sessionId}
+                onDisconnected={() => handleDisconnected(activeSession.sessionId)}
+              />
+            ) : (
+              <div
+                style={{
+                  height: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: c.textMuted,
+                  fontSize: 13,
+                  fontFamily: 'var(--font-ui)',
+                }}
+              >
+                Use the sidebar to connect to a server.
+              </div>
+            )}
+          </div>
+          {showSftp && activeSession && (
+            <div style={{ flex: '0 0 45%', borderTop: `1px solid ${c.sidebarBorder}`, overflow: 'hidden' }}>
+              <SftpPanel sessionId={activeSession.sessionId} />
             </div>
           )}
         </div>
@@ -348,6 +436,20 @@ function AppShell() {
           loading={aiLoading}
         />
       </div>
+
+      {/* History search modal */}
+      {showHistory && (
+        <HistorySearch
+          onSelect={(cmd) => {
+            // Paste command to active PTY via send_input
+            if (activeSession) {
+              const encoded = Array.from(new TextEncoder().encode(cmd));
+              import("./lib/tauri").then(({ sendInput }) => sendInput(activeSession.sessionId, encoded));
+            }
+          }}
+          onClose={() => setShowHistory(false)}
+        />
+      )}
     </div>
   );
 }

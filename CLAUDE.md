@@ -104,10 +104,10 @@ npx tsc --noEmit
 | 6b | ProfileList sidebar + QuickConnect Save button | ✅ |
 | 6c | Zmodem rz/sz support (zmodem2 crate) | ✅ |
 | 7 | App shell (3-column layout, tabs) | ✅ |
-| 8 | Profile management UI (edit form) | ⬜ |
-| 9 | AI Agent panel + CommandApproval + Claude API | ⬜ |
+| 8 | Profile management UI (edit form) | ✅ |
+| 9 | AI Agent panel + CommandApproval + Claude API | ✅ |
 | 10 | SFTP file manager | ⬜ |
-| 11 | Settings UI (AI backend, API key, theme) | ⬜ |
+| 11 | Settings UI (AI backend, API key, theme) | ✅ |
 | 12 | CEO additions (health indicators, recording, tag groups, FTS5 history) | ⬜ |
 
 ## Coding Conventions

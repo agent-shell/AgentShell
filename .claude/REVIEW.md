@@ -1,70 +1,64 @@
-# AgentShell UI — Codex Task Reviews
+# AgentShell — Implementation Review Log
 
-## Review Checklist
-- [x] Theme token values match DESIGN_SPEC.md exactly
-- [x] `grep -rn 'color:#\|background:#' src/components/` — only `'#fff'` in AIPanel (accepted: design constant)
-- [x] useTheme() used in all components — no hardcoded color strings for theme values
-- [x] Fonts correct per theme (CSS vars --font-shell, --font-ui)
-- [x] Animations present (cursor blink via xterm, agent pulse in AIPanel, scanline in Terminal)
-- [x] `npx tsc --noEmit` passes zero errors
-- [x] Commit messages match spec format
+## Tasks 01-05: ThemeProvider + UI Components (Codex-assisted)
 
----
+**Status: PASS**
 
-## TASK_01 — ThemeProvider + token system
-Status: PASS
-Commits: d2d2577
-Files: src/ThemeProvider.tsx, src/themes/{industrial,minimal,cyberpunk}.ts
-Notes: All tokens match DESIGN_SPEC.md. CSS vars injected on :root. Google Fonts loaded dynamically.
+Round 1 bugs fixed:
+- `key={i}` on proposal list → `key={`${p.command}-${p.riskLevel}`}` (stable identity)
+- `editedCmd` not passed to `onApprove` → `ProposalCardProps.onApprove: (finalCommand: string) => void`
+- Proposal filter by object identity → filter by value (`p.command !== proposal.command || p.riskLevel !== proposal.riskLevel`)
 
----
+Round 2 bugs fixed:
+- Stale history snapshot in `handleSendMessage` → moved history build before setState calls
+- `claudeApiKey` not cleared on settings close → replaced with SettingsPanel component
+- `refreshProfiles` unused → removed
 
-## TASK_02 — Sidebar
-Status: PASS
-Commit: db85262
-File: src/components/Sidebar.tsx
-Notes: All colors from useTheme(). Group headers, status dots, avatar, active row, search, footer buttons.
+All themes: token values match DESIGN_SPEC.md exactly.
+TypeScript: zero errors (`npx tsc --noEmit`).
 
 ---
 
-## TASK_03 — Terminal
-Status: PASS
-Commit: db85262
-File: src/components/Terminal.tsx
-Notes: xterm.js integrated. Industrial grid overlay, cyberpunk scanline animation. Theme re-applied on change.
+## Step 8: Profile Management UI
+
+**Status: PASS**
+
+- `ProfileForm.tsx`: inline create/edit form, no `window.prompt()`
+- `ProfileList.tsx`: ✎ edit button per row, + new profile button, inline credential sub-form for connect
+- Credentials cleared on cancel and Escape key
+- Error messages use `err?.message ?? String(err)` pattern
 
 ---
 
-## TASK_04 — AIPanel
-Status: PASS (with 2 codex findings fixed)
-Commit: db85262 + fix 0c5b5fc
-File: src/components/AIPanel.tsx
-Codex findings:
-  [P1] FIXED: key={i} on proposals → key={`${command}-${riskLevel}`} (stable, prevents state leak)
-  [P2] FIXED: editedCmd not passed to onApprove → onApprove({ ...p, command: finalCommand })
-  [P2] ACCEPTED: '#fff' on minimal avatar (design constant, not a theme token)
-  [P2] ACCEPTED: '#fbbf24' for caution risk level (same value as c.statusWarn/amber across all themes)
+## Step 9: AI Agent Panel + Rust Executor
+
+**Status: PASS**
+
+Frontend:
+- `AIPanel.tsx`: chat UI, ProposalCard with stable key, editedCmd→onApprove, risk badges
+- `AIClient`: multi-backend streaming (Claude/Ollama/OpenAI-compat), AsyncGenerator<Delta>
+- `PROPOSE_COMMAND_TOOL`: structured tool_use for command proposals
+- `streamParser.ts`: `extractProposals`, `parseProposal`, `accumulateText`
+- `App.tsx`: full AI panel wiring, scrollback context injection, streaming delta updates
+
+Rust:
+- `agent/context.rs`: `extract_context()` wraps `extract_scrollback_text()` + regex strips C0/C1 control chars
+- `agent/executor.rs`: `execute_approved()` acquires Lock 1 (ssh_channel), writes command+\n, releases lock BEFORE SQLite write (spawn_blocking)
+- `commands/agent_commands.rs`: `get_context` + `execute_approved_command` Tauri commands
+- Lock ordering respected: Lock 1 only, released before spawn_blocking SQLite audit
+
+cargo check: zero warnings.
+TypeScript: zero errors.
 
 ---
 
-## TASK_05 — ThemeSwitcher
-Status: PASS
-Commit: db85262
-File: src/components/ThemeSwitcher.tsx
-Notes: 3-card grid matches HTML design. Active card checkmark. Swatch values hardcoded (meta-UI, correct).
-Codex confirmed: duplicate background property was already fixed before review.
+## Step 11: Settings UI
 
----
+**Status: PASS**
 
-## App Wiring
-Status: PASS
-Commit: b79731e
-Notes: ThemeProvider wraps AppShell. AIPanel in right column (260px). ThemeSwitcher behind ◐ toggle button.
-Existing TerminalView/ProfileList/QuickConnect preserved intact.
+- `SettingsPanel.tsx`: backend selector (claude/ollama/openai-compat), per-backend fields, localStorage persistence
+- `loadAISettings()` / `saveAISettings()`: exported helpers, backwards-compatible with legacy `agentshell-claude-key` key
+- Old ad-hoc API key input in `App.tsx` replaced by unified SettingsPanel
+- ⚙ button in sidebar header, green when configured
 
----
-
-## Codex Review Summary (2026-04-03)
-Gate: PASS (2 P1/P2 issues found, both fixed before shipping)
-tsc: clean
-Tokens used: 349,029
+TypeScript: zero errors.

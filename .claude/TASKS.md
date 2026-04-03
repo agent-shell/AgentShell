@@ -348,3 +348,33 @@ Card data (hardcoded per card — this is meta-UI, not theme-sensitive display):
     onClick: setTheme('cyberpunk')
 
 No `any`. Commit message: "feat(ui): ThemeSwitcher card selector"
+
+## TASK_08 — ProfileList tag grouping
+
+Context: Modify the existing ProfileList sidebar to group connections by their first tag.
+
+Target file: src/components/profiles/ProfileList.tsx
+
+Current state:
+- `ConnectionProfile` has a `tags: string[]` field.
+- Profiles are currently rendered as a flat list in `profiles.map(...)`.
+- The component uses `useTheme()` from `../../ThemeProvider` and the `c` color tokens.
+- Inline forms for editing and connecting are already present and must be preserved exactly.
+
+Required changes (minimal diff — do NOT rewrite the file):
+1. Group profiles by `profile.tags[0] ?? "Ungrouped"`.
+2. Render group headers before each group:
+   - Style: fontSize 9, color = `c.textDim`, textTransform "uppercase", letterSpacing "0.14em",
+     fontFamily "var(--font-ui)", paddingTop 8, paddingBottom 2, paddingLeft 2.
+3. Profiles within each group render exactly as before (keep all existing inline form logic).
+4. Sort groups: named tags alphabetically, then "Ungrouped" last.
+5. If all profiles are in one group (or no profiles), show no group header.
+
+Constraints:
+- Must not change the profile list rendering logic beyond grouping.
+- Must not add new state or imports beyond what is needed for grouping.
+- No hardcoded hex colors. Use only theme color tokens from `useTheme()`.
+- TypeScript strict: `npx tsc --noEmit` must pass with zero errors.
+- Do not change the ProfileForm, QuickConnect, or saveCurrentAsProfile exports.
+
+Commit: "feat(ui): group ProfileList by first tag"

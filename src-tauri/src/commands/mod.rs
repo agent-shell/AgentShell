@@ -1,4 +1,9 @@
+pub mod agent_commands;
 pub mod error;
+pub mod health_commands;
+pub mod history_commands;
 pub mod profile_commands;
+pub mod recording_commands;
+pub mod sftp_commands;
 pub mod ssh_commands;
 pub mod zmodem_commands;

@@ -67,6 +67,15 @@ pub struct SessionHandle {
     /// Taken out by `start_zmodem_send` to drive the sender state machine.
     pub zmodem_input_rx:
         Arc<Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>>>>,
+
+    /// Latest server health reading (SSH sessions only; None = not yet measured or local PTY).
+    /// Written by health monitor task; read by get_health command.
+    /// Independent of lock ordering — not nested with 1-3.
+    pub server_health: Arc<Mutex<Option<crate::health::HealthData>>>,
+
+    /// Recording channel — if Some, PTY bytes are forwarded to the recording task.
+    /// Replaced with None when recording is stopped.
+    pub recording_tx: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<crate::recording::RecordingEvent>>>>,
 }
 
 /// Detect the 4-byte Zmodem ZRINIT magic in a raw PTY byte slice.
@@ -122,6 +131,8 @@ impl SessionManager {
             pty_mode: pty_mode.clone(),
             local_killer: Arc::new(Mutex::new(None)),
             zmodem_input_rx: Arc::new(Mutex::new(None)),
+            server_health: Arc::new(Mutex::new(None)),
+            recording_tx: Arc::new(Mutex::new(None)),
         });
 
         self.sessions.lock().await.insert(id, handle.clone());
@@ -155,6 +166,7 @@ impl SessionManager {
         let sid_str = id.to_string();
         let pty_mode_batcher = pty_mode.clone();
         let zmodem_rx_arc = handle.zmodem_input_rx.clone();
+        let recording_tx_batcher = handle.recording_tx.clone();
 
         tokio::spawn(async move {
             // Local Zmodem sender (Some while in Zmodem mode).
@@ -221,6 +233,16 @@ impl SessionManager {
                                         sb.drain(..n);
                                     }
                                 }
+                                // Forward to recording task if active.
+                                {
+                                    let mut rec_guard = recording_tx_batcher.lock().await;
+                                    if let Some(ref tx) = *rec_guard {
+                                        let evt = crate::recording::RecordingEvent::Data(chunk.clone());
+                                        if tx.send(evt).is_err() {
+                                            *rec_guard = None; // receiver dropped
+                                        }
+                                    }
+                                }
                                 buf.extend_from_slice(&chunk);
                             }
                         }
@@ -272,6 +294,8 @@ impl SessionManager {
             pty_mode: pty_mode.clone(),
             local_killer: Arc::new(Mutex::new(Some(killer))),
             zmodem_input_rx: Arc::new(Mutex::new(None)),
+            server_health: Arc::new(Mutex::new(None)),
+            recording_tx: Arc::new(Mutex::new(None)),
         });
 
         self.sessions.lock().await.insert(id, handle.clone());
@@ -312,6 +336,7 @@ impl SessionManager {
         let sid_str = id.to_string();
         let pty_mode_batcher = pty_mode.clone();
         let zmodem_rx_arc = handle.zmodem_input_rx.clone();
+        let recording_tx_batcher = handle.recording_tx.clone();
 
         tokio::spawn(async move {
             let mut zmodem_tx: Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>> = None;
@@ -367,6 +392,15 @@ impl SessionManager {
                                     while sb.len() > SCROLLBACK_MAX_BYTES {
                                         let n = 4096.min(sb.len() - SCROLLBACK_MAX_BYTES);
                                         sb.drain(..n);
+                                    }
+                                }
+                                {
+                                    let mut rec_guard = recording_tx_batcher.lock().await;
+                                    if let Some(ref tx) = *rec_guard {
+                                        let evt = crate::recording::RecordingEvent::Data(chunk.clone());
+                                        if tx.send(evt).is_err() {
+                                            *rec_guard = None;
+                                        }
                                     }
                                 }
                                 buf.extend_from_slice(&chunk);

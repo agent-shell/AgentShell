@@ -50,3 +50,12 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 
 # Zmodem
 zmodem2 = "0.2"
+
+# Text processing (ANSI/control-char sanitization for AI context)
+regex = "1"
+
+# SFTP subsystem
+russh-sftp = "2"
+
+# Timestamps for recording
+chrono = { version = "0.4", features = ["serde"] }
