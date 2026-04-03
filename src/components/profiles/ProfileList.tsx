@@ -1,299 +1,297 @@
-/**
- * ProfileList — sidebar list of saved SSH connection profiles.
- */
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from 'react'
 import {
   listProfiles,
   deleteProfile,
   connectProfile,
   saveProfile,
   type ConnectionProfile,
-} from "../../lib/tauri";
-import { useTheme } from "../../ThemeProvider";
-import { ProfileForm } from "./ProfileForm";
+} from '../../lib/tauri'
+import { ProfileForm } from './ProfileForm'
 
 interface ProfileListProps {
-  onConnected: (sessionId: string, label: string) => void;
+  activeSessionLabel?: string | null
+  filterQuery?: string
+  suppressEmptyState?: boolean
+  onConnected: (sessionId: string, label: string, meta?: { kind: 'ssh' | 'local'; host?: string; username?: string }) => void
 }
 
-export function ProfileList({ onConnected }: ProfileListProps) {
-  const { theme } = useTheme();
-  const c = theme.colors;
-  const [profiles, setProfiles] = useState<ConnectionProfile[]>([]);
-  const [connecting, setConnecting] = useState<string | null>(null);
-  const [connectError, setConnectError] = useState<string | null>(null);
-
-  // Inline credential form state
-  const [pendingConnect, setPendingConnect] = useState<ConnectionProfile | null>(null);
-  const [password, setPassword] = useState("");
-  const [keyPassphrase, setKeyPassphrase] = useState("");
-
-  // Edit/create form state
-  const [editingProfile, setEditingProfile] = useState<ConnectionProfile | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
+export function ProfileList({ activeSessionLabel, filterQuery = '', suppressEmptyState = false, onConnected }: ProfileListProps) {
+  const [profiles, setProfiles] = useState<ConnectionProfile[]>([])
+  const [connectingId, setConnectingId] = useState<string | null>(null)
+  const [connectError, setConnectError] = useState<string | null>(null)
+  const [pendingConnect, setPendingConnect] = useState<ConnectionProfile | null>(null)
+  const [password, setPassword] = useState('')
+  const [keyPassphrase, setKeyPassphrase] = useState('')
+  const [editingProfile, setEditingProfile] = useState<ConnectionProfile | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
 
   useEffect(() => {
-    listProfiles().then(setProfiles).catch(console.error);
-  }, []);
+    listProfiles().then(setProfiles).catch(() => setProfiles([]))
+  }, [])
 
-  async function submitConnect(profile: ConnectionProfile, pw?: string, kp?: string) {
-    setConnectError(null);
-    setConnecting(profile.id);
+  const visibleProfiles = useMemo(() => {
+    const keyword = filterQuery.trim().toLowerCase()
+    if (!keyword) return profiles
+    return profiles.filter((profile) =>
+      [profile.name, profile.host, profile.username, ...(profile.tags ?? [])]
+        .join(' ')
+        .toLowerCase()
+        .includes(keyword),
+    )
+  }, [filterQuery, profiles])
+
+  const groupedProfiles = useMemo(() => {
+    return visibleProfiles.reduce<Record<string, ConnectionProfile[]>>((groups, profile) => {
+      const groupName = profile.tags[0] ?? 'Ungrouped'
+      if (!groups[groupName]) groups[groupName] = []
+      groups[groupName].push(profile)
+      return groups
+    }, {})
+  }, [visibleProfiles])
+
+  const sortedGroups = useMemo(() => {
+    return Object.keys(groupedProfiles).sort((a, b) => {
+      if (a === 'Ungrouped') return 1
+      if (b === 'Ungrouped') return -1
+      return a.localeCompare(b)
+    })
+  }, [groupedProfiles])
+
+  async function submitConnect(profile: ConnectionProfile, providedPassword?: string, providedPassphrase?: string) {
+    setConnectingId(profile.id)
+    setConnectError(null)
     try {
-      const result = await connectProfile(profile.id, pw, kp);
-      onConnected(result.session_id, `${profile.username}@${profile.host}`);
-      setPendingConnect(null);
-      setPassword("");
-      setKeyPassphrase("");
+      const result = await connectProfile(profile.id, providedPassword, providedPassphrase)
+      onConnected(result.session_id, profile.name, {
+        kind: 'ssh',
+        host: profile.host,
+        username: profile.username,
+      })
+      setPendingConnect(null)
+      setPassword('')
+      setKeyPassphrase('')
     } catch (err) {
-      const msg =
-        err != null && typeof err === "object" && "message" in err
+      setConnectError(
+        err != null && typeof err === 'object' && 'message' in err
           ? String((err as { message: unknown }).message)
-          : String(err);
-      setConnectError(msg);
+          : String(err),
+      )
     } finally {
-      setConnecting(null);
+      setConnectingId(null)
     }
   }
 
   function handleConnect(profile: ConnectionProfile) {
-    if (profile.auth_kind === "agent") {
-      submitConnect(profile);
-      return;
+    if (profile.auth_kind === 'agent') {
+      void submitConnect(profile)
+      return
     }
-    // Show inline credential form
-    setPendingConnect(profile);
-    setPassword("");
-    setKeyPassphrase("");
-    setConnectError(null);
+    setPendingConnect(profile)
+    setPassword('')
+    setKeyPassphrase('')
+    setConnectError(null)
   }
 
-  async function handleDelete(id: string, e: React.MouseEvent) {
-    e.stopPropagation();
+  async function handleDelete(id: string) {
     try {
-      await deleteProfile(id);
-      setProfiles((prev) => prev.filter((p) => p.id !== id));
+      await deleteProfile(id)
+      setProfiles((current) => current.filter((profile) => profile.id !== id))
+      if (editingProfile?.id === id) setEditingProfile(null)
+      if (pendingConnect?.id === id) setPendingConnect(null)
     } catch (err) {
-      console.error("delete profile failed:", err);
+      setConnectError(
+        err != null && typeof err === 'object' && 'message' in err
+          ? String((err as { message: unknown }).message)
+          : String(err),
+      )
     }
   }
-
-  const inputCls =
-    "w-full px-2 py-1 text-xs bg-[var(--color-terminal-bg)] border border-[var(--color-sidebar-border)] rounded text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus:border-[var(--color-accent)] focus:outline-none";
-  const groupedProfiles = profiles.reduce<Record<string, ConnectionProfile[]>>((acc, profile) => {
-    const group = profile.tags[0] ?? "Ungrouped";
-    if (!acc[group]) acc[group] = [];
-    acc[group].push(profile);
-    return acc;
-  }, {});
-  const sortedGroupNames = Object.keys(groupedProfiles).sort((a, b) => {
-    if (a === "Ungrouped") return 1;
-    if (b === "Ungrouped") return -1;
-    return a.localeCompare(b);
-  });
-  const showGroupHeaders = sortedGroupNames.length > 1;
 
   return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-[var(--color-muted)] font-medium uppercase tracking-wider">
-          Saved
-        </p>
-        <button
-          onClick={() => { setShowCreate(true); setEditingProfile(null); }}
-          className="text-xs text-[var(--color-accent)] hover:text-[var(--color-accent2)]"
-          title="New profile"
-        >
-          +
-        </button>
-      </div>
-
-      {showCreate && (
+    <div className="profile-list">
+      {showCreate ? (
         <ProfileForm
           onSave={(saved) => {
-            setProfiles((prev) => [...prev, saved]);
-            setShowCreate(false);
+            setProfiles((current) => [...current, saved])
+            setShowCreate(false)
           }}
           onCancel={() => setShowCreate(false)}
         />
-      )}
+      ) : null}
 
-      {sortedGroupNames.map((groupName) => (
-        <div key={groupName}>
-          {showGroupHeaders && (
-            <div
-              style={{
-                fontSize: 9,
-                color: c.textDim,
-                textTransform: "uppercase",
-                letterSpacing: "0.14em",
-                fontFamily: "var(--font-ui)",
-                paddingTop: 8,
-                paddingBottom: 2,
-                paddingLeft: 2,
-              }}
-            >
-              {groupName}
-            </div>
-          )}
-          {groupedProfiles[groupName].map((profile) => (
-            <div key={profile.id}>
-              <div
-                className="group flex items-center justify-between px-2 py-1.5 rounded bg-[var(--color-terminal-bg)] border border-[var(--color-sidebar-border)] hover:border-[var(--color-accent)] cursor-pointer transition-colors"
-                onClick={() => {
-                  if (editingProfile?.id === profile.id) return;
-                  handleConnect(profile);
-                }}
-              >
-                <div className="min-w-0">
-                  <p className="text-xs text-[var(--color-text)] truncate">{profile.name}</p>
-                  <p className="text-xs text-[var(--color-muted)] truncate">
-                    {profile.username}@{profile.host}:{profile.port}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1 shrink-0 ml-1">
-                  {connecting === profile.id ? (
-                    <span className="text-xs text-[var(--color-accent)]">…</span>
-                  ) : (
-                    <>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingProfile(editingProfile?.id === profile.id ? null : profile);
-                          setShowCreate(false);
-                        }}
-                        className="text-[var(--color-muted)] hover:text-[var(--color-accent)] opacity-0 group-hover:opacity-100 transition-opacity text-xs"
-                        title="Edit profile"
-                      >
-                        ✎
-                      </button>
-                      <button
-                        onClick={(e) => handleDelete(profile.id, e)}
-                        className="text-[var(--color-muted)] hover:text-[var(--color-red)] opacity-0 group-hover:opacity-100 transition-opacity text-xs"
-                        title="Delete profile"
-                      >
-                        ✕
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
+      {sortedGroups.map((groupName) => (
+        <div className="profile-group" key={groupName}>
+          {sortedGroups.length > 1 ? (
+            <div className="profile-group__label section-label">{groupName}</div>
+          ) : null}
 
-              {/* Inline edit form */}
-              {editingProfile?.id === profile.id && (
-                <ProfileForm
-                  profile={editingProfile}
-                  onSave={(saved) => {
-                    setProfiles((prev) =>
-                      prev.map((p) => (p.id === saved.id ? saved : p))
-                    );
-                    setEditingProfile(null);
+          {groupedProfiles[groupName].map((profile) => {
+            const isActive = activeSessionLabel === profile.name
+            const isEditing = editingProfile?.id === profile.id
+            return (
+              <div key={profile.id}>
+                <div
+                  className={`profile-row${isActive ? ' is-active' : ''}${isEditing ? ' is-editing' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    if (isEditing) return
+                    handleConnect(profile)
                   }}
-                  onCancel={() => setEditingProfile(null)}
-                />
-              )}
-
-              {/* Inline credential form for connecting */}
-              {pendingConnect?.id === profile.id && (
-                <div className="mt-1 p-2 bg-[var(--color-terminal-bg)] border border-[var(--color-sidebar-border)] rounded space-y-1">
-                  {profile.auth_kind === "password" && (
-                    <div>
-                      <label className="text-xs text-[var(--color-muted)] uppercase tracking-wider">
-                        Password
-                      </label>
-                      <input
-                        type="password"
-                        className={inputCls}
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder={`${profile.username}@${profile.host}`}
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") submitConnect(profile, password, undefined);
-                          if (e.key === "Escape") { setPendingConnect(null); setPassword(""); setKeyPassphrase(""); }
-                        }}
-                        autoComplete="current-password"
-                      />
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      if (!isEditing) handleConnect(profile)
+                    }
+                  }}
+                >
+                  <span className="profile-avatar">{profile.name.slice(0, 2).toUpperCase()}</span>
+                  <span className="profile-copy">
+                    <div className="profile-name">{profile.name}</div>
+                    <div className="profile-meta">
+                      {profile.username}@{profile.host}:{profile.port}
                     </div>
-                  )}
-                  {profile.auth_kind === "publickey" && (
-                    <div>
-                      <label className="text-xs text-[var(--color-muted)] uppercase tracking-wider">
-                        Key passphrase (leave empty if none)
-                      </label>
-                      <input
-                        type="password"
-                        className={inputCls}
-                        value={keyPassphrase}
-                        onChange={(e) => setKeyPassphrase(e.target.value)}
-                        placeholder="passphrase"
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") submitConnect(profile, undefined, keyPassphrase || undefined);
-                          if (e.key === "Escape") { setPendingConnect(null); setPassword(""); setKeyPassphrase(""); }
-                        }}
-                        autoComplete="current-password"
-                      />
-                    </div>
-                  )}
-                  {connectError && (
-                    <p className="text-xs text-[var(--color-red)] break-words">{connectError}</p>
-                  )}
-                  <div className="flex gap-2">
+                  </span>
+                  <span
+                    className="status-dot"
+                    style={{
+                      marginLeft: 'auto',
+                      background:
+                        isActive ? 'var(--color-status-online)' : profile.auth_kind === 'agent' ? 'var(--color-status-warn)' : 'var(--color-text-dim)',
+                    }}
+                  />
+                  <span className="profile-actions">
                     <button
-                      onClick={() =>
-                        submitConnect(
-                          profile,
-                          profile.auth_kind === "password" ? password : undefined,
-                          profile.auth_kind === "publickey" ? keyPassphrase || undefined : undefined,
-                        )
-                      }
-                      disabled={connecting === profile.id}
-                      className="px-3 py-1 text-xs bg-[var(--color-terminal-bg)] hover:border-[var(--color-accent2)] border border-[var(--color-accent)] rounded text-[var(--color-accent)] disabled:opacity-50"
-                    >
-                      {connecting === profile.id ? "Connecting…" : "Connect"}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setPendingConnect(null);
-                        setPassword("");
-                        setKeyPassphrase("");
+                      className="icon-button"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setEditingProfile(isEditing ? null : profile)
+                        setShowCreate(false)
                       }}
-                      className="px-3 py-1 text-xs border border-[var(--color-sidebar-border)] rounded text-[var(--color-muted)] hover:text-[var(--color-text)]"
                     >
-                      Cancel
+                      ✎
                     </button>
-                  </div>
+                    <button
+                      className="icon-button"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void handleDelete(profile.id)
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </span>
                 </div>
-              )}
-            </div>
-          ))}
+
+                {isEditing ? (
+                  <ProfileForm
+                    profile={editingProfile ?? undefined}
+                    onSave={(saved) => {
+                      setProfiles((current) => current.map((item) => (item.id === saved.id ? saved : item)))
+                      setEditingProfile(null)
+                    }}
+                    onCancel={() => setEditingProfile(null)}
+                  />
+                ) : null}
+
+                {pendingConnect?.id === profile.id ? (
+                  <div className="form-card form-grid" style={{ marginTop: 8 }}>
+                    {profile.auth_kind === 'password' ? (
+                      <label className="form-grid">
+                        <span className="section-label">Password</span>
+                        <input
+                          className="themed-input"
+                          type="password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder={`${profile.username}@${profile.host}`}
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void submitConnect(profile, password)
+                            if (e.key === 'Escape') setPendingConnect(null)
+                          }}
+                        />
+                      </label>
+                    ) : null}
+
+                    {profile.auth_kind === 'publickey' ? (
+                      <label className="form-grid">
+                        <span className="section-label">Key passphrase</span>
+                        <input
+                          className="themed-input"
+                          type="password"
+                          value={keyPassphrase}
+                          onChange={(e) => setKeyPassphrase(e.target.value)}
+                          placeholder="leave empty if none"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void submitConnect(profile, undefined, keyPassphrase || undefined)
+                            if (e.key === 'Escape') setPendingConnect(null)
+                          }}
+                        />
+                      </label>
+                    ) : null}
+
+                    {connectError ? <div className="inline-error">{connectError}</div> : null}
+
+                    <div className="form-actions">
+                      <button
+                        className="themed-button-secondary"
+                        type="button"
+                        disabled={connectingId === profile.id}
+                        onClick={() =>
+                          void submitConnect(
+                            profile,
+                            profile.auth_kind === 'password' ? password : undefined,
+                            profile.auth_kind === 'publickey' ? keyPassphrase || undefined : undefined,
+                          )
+                        }
+                      >
+                        {connectingId === profile.id ? 'Connecting' : 'Connect'}
+                      </button>
+                      <button
+                        className="themed-button-ghost"
+                        type="button"
+                        onClick={() => {
+                          setPendingConnect(null)
+                          setPassword('')
+                          setKeyPassphrase('')
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )
+          })}
         </div>
       ))}
 
-      {profiles.length === 0 && !showCreate && (
-        <p className="text-xs text-[var(--color-muted)] italic">No saved profiles.</p>
-      )}
-
-      {connectError && !pendingConnect && (
-        <p className="text-xs text-[var(--color-red)] break-words">{connectError}</p>
-      )}
+      {profiles.length === 0 && !showCreate && !suppressEmptyState ? (
+        <div className="surface-card sidebar-empty-card">
+          <div className="section-label">Saved profiles</div>
+          <div className="muted-text" style={{ marginTop: 8, lineHeight: 1.6 }}>
+            No saved profiles yet. Use `New` for a quick session, then save it as a profile.
+          </div>
+        </div>
+      ) : null}
     </div>
-  );
+  )
 }
 
-/**
- * Hook exposed for QuickConnect to save the current form as a profile.
- */
 export async function saveCurrentAsProfile(
   name: string,
   host: string,
   port: number,
   username: string,
-  authKind: "password" | "publickey" | "agent",
+  authKind: 'password' | 'publickey' | 'agent',
   keyPath?: string,
 ): Promise<ConnectionProfile> {
-  const profile: ConnectionProfile = {
+  return saveProfile({
     id: crypto.randomUUID(),
     name,
     host,
@@ -302,6 +300,5 @@ export async function saveCurrentAsProfile(
     auth_kind: authKind,
     key_path: keyPath,
     tags: [],
-  };
-  return saveProfile(profile);
+  })
 }

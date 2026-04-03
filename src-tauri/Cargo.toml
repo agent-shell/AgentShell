@@ -5,6 +5,7 @@ description = "AgentShell — SSH terminal + AI agent"
 authors = ["AgentShell Contributors"]
 edition = "2021"
 license = "MIT"
+default-run = "agentshell"
 
 [lib]
 name = "agentshell_lib"

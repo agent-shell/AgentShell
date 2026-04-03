@@ -13,6 +13,16 @@ interface CardDef {
   desc: string
   tags: string[]
   swatches: SwatchDef[]
+  preview: {
+    bg: string
+    surface: string
+    border: string
+    text: string
+    muted: string
+    accent: string
+    accent2: string
+    shellFont: string
+  }
 }
 
 const CARDS: CardDef[] = [
@@ -27,6 +37,16 @@ const CARDS: CardDef[] = [
       { bg: '#2dd4bf' },
       { bg: '#34d399' },
     ],
+    preview: {
+      bg: '#060910',
+      surface: '#0b0f18',
+      border: 'rgba(212,168,75,0.15)',
+      text: '#c8d4e8',
+      muted: '#5a7090',
+      accent: '#d4a84b',
+      accent2: '#2dd4bf',
+      shellFont: "'JetBrains Mono', monospace",
+    },
   },
   {
     name: 'minimal',
@@ -39,6 +59,16 @@ const CARDS: CardDef[] = [
       { bg: '#16a34a' },
       { bg: '#dc2626' },
     ],
+    preview: {
+      bg: '#ffffff',
+      surface: '#f8f7f5',
+      border: '#e0dedd',
+      text: '#1a1917',
+      muted: '#6b6a67',
+      accent: '#1a1917',
+      accent2: '#2563eb',
+      shellFont: "'IBM Plex Mono', monospace",
+    },
   },
   {
     name: 'cyberpunk',
@@ -51,142 +81,142 @@ const CARDS: CardDef[] = [
       { bg: '#f472b6' },
       { bg: '#22d3ee' },
     ],
+    preview: {
+      bg: '#06030d',
+      surface: '#0a0614',
+      border: 'rgba(192,132,252,0.15)',
+      text: '#e2d9f3',
+      muted: '#7a6a99',
+      accent: '#c084fc',
+      accent2: '#22d3ee',
+      shellFont: "'Share Tech Mono', monospace",
+    },
   },
 ]
 
-export function ThemeSwitcher(): React.ReactElement {
+export function ThemeSwitcher({ onClose }: { onClose?: () => void }): React.ReactElement {
   const { theme, setTheme } = useTheme()
-  const c = theme.colors
+  const active = CARDS.find((card) => card.name === theme.name) ?? CARDS[0]
 
   return (
-    <div
-      style={{
-        background: 'var(--color-sidebar-bg)',
-        border: '1px solid var(--color-sidebar-border)',
-        borderRadius: 12,
-        padding: 20,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 10,
-          letterSpacing: '0.16em',
-          textTransform: 'uppercase',
-          color: c.textMuted,
-          fontFamily: 'var(--font-ui)',
-          marginBottom: 14,
-        }}
-      >
-        Select a theme
+    <div className="theme-selector">
+      <div className="theme-selector__header">
+        <div className="theme-selector__eyebrow">Theme Selection</div>
+        <div className="theme-selector__title">
+          <span className="brand-mark"><span>A</span></span>
+          <span>AgentShell</span>
+        </div>
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: 12,
-        }}
-      >
+      <div className="modal-row">
+        <div>
+          <div className="section-label">Select a theme</div>
+          <div className="muted-text" style={{ marginTop: 8 }}>
+            三套主题全部实现，切换后会同步更新窗口外壳、终端和 AI 面板。
+          </div>
+        </div>
+        {onClose ? (
+          <button className="themed-button-ghost" type="button" onClick={onClose}>
+            Close
+          </button>
+        ) : null}
+      </div>
+
+      <div className="theme-grid">
         {CARDS.map((card) => {
           const isActive = theme.name === card.name
           return (
-            <div
+            <button
               key={card.name}
+              type="button"
+              className={`theme-card${isActive ? ' is-active' : ''}`}
               onClick={() => setTheme(card.name)}
-              style={{
-                background: isActive ? c.accent + '0f' : 'var(--color-terminal-bg)',
-                border: `1.5px solid ${isActive ? c.accent : 'var(--color-sidebar-border)'}`,
-                borderRadius: 8,
-                padding: '14px 16px',
-                cursor: 'pointer',
-                position: 'relative',
-                overflow: 'hidden',
-                transition: 'border-color 0.2s',
-              } as React.CSSProperties}
             >
-              {/* Active checkmark */}
-              {isActive && (
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: 10,
-                    right: 12,
-                    fontSize: 12,
-                    color: c.accent,
-                    fontWeight: 700,
-                  }}
-                >
-                  ✓
-                </span>
-              )}
-
-              {/* Swatches */}
-              <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
-                {card.swatches.map((sw, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: 4,
-                      background: sw.bg,
-                      border: sw.border ? `1px solid ${sw.border}` : undefined,
-                    }}
+              {isActive ? <span className="theme-card__check">✓</span> : null}
+              <div className="theme-card__swatches">
+                {card.swatches.map((swatch, index) => (
+                  <span
+                    key={`${card.name}-${index}`}
+                    className="theme-card__swatch"
+                    style={{ background: swatch.bg, border: swatch.border ? `1px solid ${swatch.border}` : undefined }}
                   />
                 ))}
               </div>
-
-              {/* Name */}
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  fontFamily: 'var(--font-ui)',
-                  color: 'var(--color-text)',
-                  letterSpacing: '0.04em',
-                  marginBottom: 3,
-                }}
-              >
-                {card.label}
-              </div>
-
-              {/* Description */}
-              <div
-                style={{
-                  fontSize: 11,
-                  fontFamily: 'var(--font-ui)',
-                  color: 'var(--color-text)',
-                  opacity: 0.45,
-                  lineHeight: 1.5,
-                }}
-              >
-                {card.desc}
-              </div>
-
-              {/* Tags */}
-              <div style={{ display: 'flex', gap: 5, marginTop: 9, flexWrap: 'wrap' }}>
+              <div className="theme-card__title">{card.label}</div>
+              <div className="theme-card__desc">{card.desc}</div>
+              <div className="theme-card__tags">
                 {card.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    style={{
-                      fontSize: 9,
-                      letterSpacing: '0.1em',
-                      textTransform: 'uppercase',
-                      padding: '2px 8px',
-                      borderRadius: 20,
-                      background: 'var(--color-badge-bg)',
-                      border: '1px solid var(--color-badge-border)',
-                      color: 'var(--color-badge-text)',
-                      fontFamily: 'var(--font-ui)',
-                    }}
-                  >
+                  <span className="theme-card__tag" key={tag}>
                     {tag}
                   </span>
                 ))}
               </div>
-            </div>
+            </button>
           )
         })}
+      </div>
+
+      <div className="theme-preview">
+        <div
+          className="theme-preview-shell"
+          style={{
+            ['--preview-bg' as string]: active.preview.bg,
+            ['--preview-surface' as string]: active.preview.surface,
+            ['--preview-border' as string]: active.preview.border,
+            ['--preview-text' as string]: active.preview.text,
+            ['--preview-shell-font' as string]: active.preview.shellFont,
+          }}
+        >
+          <div className="preview-topbar">
+            <div className="window-controls">
+              <span className="window-control close" />
+              <span className="window-control minimize" />
+              <span className="window-control maximize" />
+            </div>
+            <div style={{ color: active.preview.accent, fontWeight: 700 }}>AgentShell</div>
+            <div style={{ marginLeft: 'auto', color: active.preview.accent2, fontSize: 10 }}>Agent Active</div>
+          </div>
+          <div className="preview-sidebar">
+            <div className="section-label" style={{ color: active.preview.muted }}>Connections</div>
+            <div style={{ marginTop: 10 }}>
+              {['prod-aks-01', 'az-bastion', 'staging-vm'].map((item, index) => (
+                <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0' }}>
+                  <span className="status-dot" style={{ background: index === 1 ? '#fbbf24' : index === 2 ? active.preview.muted : '#34d399' }} />
+                  <div>
+                    <div style={{ color: active.preview.text, fontSize: 11.5 }}>{item}</div>
+                    <div style={{ color: active.preview.muted, fontSize: 10 }}>root · live session</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="preview-main">
+            <div className="preview-main__top">
+              <span className="live-pill" style={{ borderColor: active.preview.accent2, color: active.preview.accent2 }}>
+                <span className="pulse-dot" style={{ background: active.preview.accent2 }} />
+                Live
+              </span>
+              <span style={{ color: active.preview.muted, fontSize: 11 }}>root@prod-aks-01 · ~/k8s</span>
+            </div>
+            <div className="preview-main__body">
+              <div style={{ color: active.preview.muted }}>── AgentShell · live diagnostics ─────────────</div>
+              <div style={{ marginTop: 8 }}>
+                <span style={{ color: active.preview.accent }}>❯ </span>
+                <span>kubectl get pods -n production</span>
+              </div>
+              <div style={{ marginTop: 8, color: '#34d399' }}>api-7d9f8b-xk2m4    1/1   Running</div>
+              <div style={{ color: '#f87171' }}>worker-6c5f9d-jt4k9 0/1   CrashLoop</div>
+              <div style={{ marginTop: 8, color: active.preview.accent2 }}>AgentShell · PostgreSQL unreachable · diagnosing...</div>
+            </div>
+          </div>
+          <div className="preview-ai">
+            <div className="section-label" style={{ color: active.preview.muted }}>AgentShell AI</div>
+            <div style={{ marginTop: 12, padding: 10, borderRadius: 8, border: `1px solid ${active.preview.border}`, background: active.preview.surface }}>
+              <div style={{ color: active.preview.accent, fontSize: 9, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Analysis</div>
+              <div style={{ marginTop: 8, fontSize: 11, lineHeight: 1.6 }}>worker pod is crash-looping. Postgres at 10.96.0.15:5432 refused the connection.</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )

@@ -1,136 +1,107 @@
-/**
- * HistorySearch — Ctrl+R-style command history modal.
- *
- * Opens on Ctrl+R from within the terminal area (wired in App.tsx).
- * FTS5 search on the Rust side; results update as the user types.
- * Selecting a result calls onSelect(command) which the parent pastes to PTY.
- */
-import { useState, useEffect, useRef } from "react";
-import { useTheme } from "../../ThemeProvider";
-import { searchCommandHistory, recentCommandHistory, type HistoryEntry } from "../../lib/tauri";
+import { useEffect, useRef, useState } from 'react'
+import { recentCommandHistory, searchCommandHistory, type HistoryEntry } from '../../lib/tauri'
 
 interface HistorySearchProps {
-  onSelect: (command: string) => void;
-  onClose: () => void;
+  onSelect: (command: string) => void
+  onClose: () => void
 }
 
 export function HistorySearch({ onSelect, onClose }: HistorySearchProps) {
-  const { theme } = useTheme();
-  const c = theme.colors;
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<HistoryEntry[]>([]);
-  const [selectedIdx, setSelectedIdx] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<HistoryEntry[]>([])
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    inputRef.current?.focus();
-    // Load recent history on open
-    recentCommandHistory(20).then(setResults).catch(() => {});
-  }, []);
+    inputRef.current?.focus()
+    recentCommandHistory(20).then(setResults).catch(() => setResults([]))
+  }, [])
 
   useEffect(() => {
-    setSelectedIdx(0);
-    if (query.trim() === "") {
-      recentCommandHistory(20).then(setResults).catch(() => {});
-      return;
+    setSelectedIndex(0)
+    if (!query.trim()) {
+      recentCommandHistory(20).then(setResults).catch(() => setResults([]))
+      return
     }
-    const t = setTimeout(() => {
-      searchCommandHistory(query, 20).then(setResults).catch(() => {});
-    }, 120);
-    return () => clearTimeout(t);
-  }, [query]);
+    const timer = window.setTimeout(() => {
+      searchCommandHistory(query, 20).then(setResults).catch(() => setResults([]))
+    }, 120)
+    return () => window.clearTimeout(timer)
+  }, [query])
 
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Escape") { onClose(); return; }
-    if (e.key === "ArrowDown") { setSelectedIdx((i) => Math.min(i + 1, results.length - 1)); e.preventDefault(); return; }
-    if (e.key === "ArrowUp") { setSelectedIdx((i) => Math.max(i - 1, 0)); e.preventDefault(); return; }
-    if (e.key === "Enter" && results[selectedIdx]) {
-      onSelect(results[selectedIdx].command);
-      onClose();
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Escape') {
+      onClose()
+      return
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setSelectedIndex((current) => Math.min(current + 1, results.length - 1))
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setSelectedIndex((current) => Math.max(current - 1, 0))
+      return
+    }
+    if (e.key === 'Enter' && results[selectedIndex]) {
+      onSelect(results[selectedIndex].command)
+      onClose()
     }
   }
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.55)",
-        display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "center",
-        paddingTop: 80,
-        zIndex: 9999,
-      }}
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: 560,
-          maxWidth: "90vw",
-          background: c.sidebarBg,
-          border: `1px solid ${c.accent}`,
-          borderRadius: 6,
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-          maxHeight: "60vh",
-        }}
-      >
-        {/* Search input */}
-        <div style={{ padding: "8px 12px", borderBottom: `1px solid ${c.sidebarBorder}`, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 13, color: c.textMuted }}>⌕</span>
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card history-card" onClick={(e) => e.stopPropagation()} style={{ width: 'min(720px, calc(100vw - 48px))' }}>
+        <div className="modal-title">
+          <div>
+            <div className="section-label">Command history</div>
+            <div className="muted-text" style={{ marginTop: 8 }}>
+              Ctrl+R style search across recorded commands.
+            </div>
+          </div>
+          <button className="themed-button-ghost" type="button" onClick={onClose}>
+            ESC
+          </button>
+        </div>
+
+        <div className="surface-card" style={{ marginTop: 16 }}>
           <input
             ref={inputRef}
+            className="themed-input"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search command history…"
-            style={{
-              flex: 1,
-              background: "transparent",
-              border: "none",
-              outline: "none",
-              fontSize: 12,
-              fontFamily: "var(--font-shell)",
-              color: c.pageText,
-            }}
+            placeholder="Search command history..."
           />
-          <span style={{ fontSize: 10, color: c.textMuted, fontFamily: "var(--font-ui)" }}>ESC to close</span>
         </div>
 
-        {/* Results */}
-        <div style={{ overflowY: "auto", flex: 1 }}>
-          {results.length === 0 && (
-            <div style={{ padding: "12px 16px", fontSize: 11, color: c.textMuted, fontStyle: "italic" }}>
-              {query ? "No matches" : "No history yet"}
-            </div>
-          )}
-          {results.map((entry, i) => (
-            <div
+        <div className="history-list" style={{ marginTop: 16, maxHeight: '54vh' }}>
+          {results.length === 0 ? (
+            <div className="surface-card muted-text">{query ? 'No history matches.' : 'No command history yet.'}</div>
+          ) : null}
+
+          {results.map((entry, index) => (
+            <button
               key={entry.id}
-              onClick={() => { onSelect(entry.command); onClose(); }}
-              style={{
-                padding: "6px 12px",
-                cursor: "pointer",
-                background: i === selectedIdx ? `${c.accent}18` : "transparent",
-                borderLeft: i === selectedIdx ? `2px solid ${c.accent}` : "2px solid transparent",
-                display: "flex",
-                flexDirection: "column",
-                gap: 2,
+              type="button"
+              className={`history-item${index === selectedIndex ? ' is-selected' : ''}`}
+              onClick={() => {
+                onSelect(entry.command)
+                onClose()
               }}
             >
-              <span style={{ fontSize: 12, fontFamily: "var(--font-shell)", color: c.pageText, whiteSpace: "pre", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {entry.command}
+              <span className="history-item__content">
+                <div className="history-item__command">{entry.command}</div>
+                <div className="history-item__meta">
+                  {entry.ts}
+                  {entry.hostname ? ` · ${entry.hostname}` : ''}
+                </div>
               </span>
-              <span style={{ fontSize: 9, color: c.textMuted, fontFamily: "var(--font-ui)" }}>
-                {entry.ts} {entry.hostname ? `· ${entry.hostname}` : ""}
-              </span>
-            </div>
+            </button>
           ))}
         </div>
       </div>
     </div>
-  );
+  )
 }

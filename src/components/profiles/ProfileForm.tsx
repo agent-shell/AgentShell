@@ -1,195 +1,126 @@
-import { useState } from "react";
-import { saveProfile, type ConnectionProfile } from "../../lib/tauri";
+import { useState } from 'react'
+import { saveProfile, type ConnectionProfile } from '../../lib/tauri'
 
 interface ProfileFormProps {
-  profile?: ConnectionProfile;
-  onSave: (saved: ConnectionProfile) => void;
-  onCancel: () => void;
+  profile?: ConnectionProfile
+  onSave: (saved: ConnectionProfile) => void
+  onCancel: () => void
 }
 
 export function ProfileForm({ profile, onSave, onCancel }: ProfileFormProps) {
-  const isEdit = profile !== undefined;
-
-  const [name, setName] = useState(profile?.name ?? "");
-  const [host, setHost] = useState(profile?.host ?? "");
-  const [port, setPort] = useState(String(profile?.port ?? 22));
-  const [username, setUsername] = useState(profile?.username ?? "");
-  const [authKind, setAuthKind] = useState<"password" | "publickey" | "agent">(
-    profile?.auth_kind ?? "publickey"
-  );
-  const [password, setPassword] = useState("");
-  const [keyPath, setKeyPath] = useState(profile?.key_path ?? "");
-  const [keyPassphrase, setKeyPassphrase] = useState("");
-  const [tags, setTags] = useState(profile?.tags?.join(", ") ?? "");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const isEdit = profile !== undefined
+  const [name, setName] = useState(profile?.name ?? '')
+  const [host, setHost] = useState(profile?.host ?? '')
+  const [port, setPort] = useState(String(profile?.port ?? 22))
+  const [username, setUsername] = useState(profile?.username ?? '')
+  const [authKind, setAuthKind] = useState<'password' | 'publickey' | 'agent'>(profile?.auth_kind ?? 'publickey')
+  const [keyPath, setKeyPath] = useState(profile?.key_path ?? '')
+  const [tags, setTags] = useState(profile?.tags?.join(', ') ?? '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSaving(true);
+    e.preventDefault()
+    setSaving(true)
+    setError(null)
     try {
-      const updated: ConnectionProfile = {
+      const saved = await saveProfile({
         id: profile?.id ?? crypto.randomUUID(),
         name: name.trim() || `${username}@${host}`,
         host: host.trim(),
-        port: parseInt(port, 10) || 22,
+        port: Number.parseInt(port, 10) || 22,
         username: username.trim(),
         auth_kind: authKind,
-        key_path: authKind === "publickey" && keyPath.trim() ? keyPath.trim() : undefined,
+        key_path: authKind === 'publickey' && keyPath.trim() ? keyPath.trim() : undefined,
         tags: tags
-          .split(",")
-          .map((t) => t.trim())
+          .split(',')
+          .map((part) => part.trim())
           .filter(Boolean),
-      };
-      const saved = await saveProfile(updated);
-      onSave(saved);
+      })
+      onSave(saved)
     } catch (err) {
-      setError(err != null && typeof err === "object" && "message" in err
-        ? String((err as { message: unknown }).message)
-        : String(err));
+      setError(
+        err != null && typeof err === 'object' && 'message' in err
+          ? String((err as { message: unknown }).message)
+          : String(err),
+      )
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
   }
 
-  const inputCls =
-    "w-full px-2 py-1.5 text-xs bg-[var(--color-terminal-bg)] border border-[var(--color-sidebar-border)] rounded text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus:border-[var(--color-accent)] focus:outline-none";
-  const labelCls = "text-xs text-[var(--color-muted)] uppercase tracking-wider";
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-2 p-3 bg-[var(--color-terminal-bg)] border border-[var(--color-sidebar-border)] rounded">
-      <p className="text-xs text-[var(--color-accent)] font-semibold">
-        {isEdit ? "Edit Profile" : "New Profile"}
-      </p>
-
-      <div>
-        <label className={labelCls}>Name</label>
-        <input
-          className={inputCls}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="My server"
-        />
+    <form className="form-card form-grid" onSubmit={handleSubmit}>
+      <div className="quick-connect-card__title">
+        <span>{isEdit ? 'Edit profile' : 'New profile'}</span>
+        <span className="meta-label">SSH</span>
       </div>
 
-      <div className="flex gap-2">
-        <div className="flex-1">
-          <label className={labelCls}>Host</label>
+      <label className="form-grid">
+        <span className="section-label">Name</span>
+        <input className="themed-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="My production bastion" />
+      </label>
+
+      <div className="form-grid form-grid--two">
+        <label className="form-grid">
+          <span className="section-label">Host</span>
           <input
-            className={inputCls}
+            className="themed-input"
             value={host}
             onChange={(e) => setHost(e.target.value)}
-            placeholder="192.168.1.1"
+            placeholder="192.168.1.10"
             required
           />
-        </div>
-        <div className="w-16">
-          <label className={labelCls}>Port</label>
+        </label>
+        <label className="form-grid">
+          <span className="section-label">Port</span>
           <input
-            className={inputCls}
-            type="number"
+            className="themed-input"
             value={port}
             onChange={(e) => setPort(e.target.value)}
+            type="number"
             min={1}
             max={65535}
           />
-        </div>
+        </label>
       </div>
 
-      <div>
-        <label className={labelCls}>Username</label>
-        <input
-          className={inputCls}
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          placeholder="root"
-          required
-        />
-      </div>
+      <label className="form-grid">
+        <span className="section-label">Username</span>
+        <input className="themed-input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="root" required />
+      </label>
 
-      <div>
-        <label className={labelCls}>Auth</label>
-        <select
-          className={inputCls}
-          value={authKind}
-          onChange={(e) =>
-            setAuthKind(e.target.value as "password" | "publickey" | "agent")
-          }
-        >
-          <option value="publickey">Public Key</option>
+      <label className="form-grid">
+        <span className="section-label">Auth mode</span>
+        <select className="themed-select" value={authKind} onChange={(e) => setAuthKind(e.target.value as 'password' | 'publickey' | 'agent')}>
+          <option value="publickey">Private key</option>
+          <option value="agent">SSH agent</option>
           <option value="password">Password</option>
-          <option value="agent">SSH Agent</option>
         </select>
-      </div>
+      </label>
 
-      {authKind === "password" && (
-        <div>
-          <label className={labelCls}>Password</label>
-          <input
-            className={inputCls}
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="stored only for this session"
-            autoComplete="current-password"
-          />
-        </div>
-      )}
+      {authKind === 'publickey' ? (
+        <label className="form-grid">
+          <span className="section-label">Key path</span>
+          <input className="themed-input" value={keyPath} onChange={(e) => setKeyPath(e.target.value)} placeholder="~/.ssh/id_ed25519" />
+        </label>
+      ) : null}
 
-      {authKind === "publickey" && (
-        <>
-          <div>
-            <label className={labelCls}>Key path</label>
-            <input
-              className={inputCls}
-              value={keyPath}
-              onChange={(e) => setKeyPath(e.target.value)}
-              placeholder="~/.ssh/id_ed25519"
-            />
-          </div>
-          <div>
-            <label className={labelCls}>Key passphrase</label>
-            <input
-              className={inputCls}
-              type="password"
-              value={keyPassphrase}
-              onChange={(e) => setKeyPassphrase(e.target.value)}
-              placeholder="leave empty if none"
-              autoComplete="current-password"
-            />
-          </div>
-        </>
-      )}
+      <label className="form-grid">
+        <span className="section-label">Tags</span>
+        <input className="themed-input" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="production, us-east" />
+      </label>
 
-      <div>
-        <label className={labelCls}>Tags (comma-separated)</label>
-        <input
-          className={inputCls}
-          value={tags}
-          onChange={(e) => setTags(e.target.value)}
-          placeholder="production, us-east"
-        />
-      </div>
+      {error ? <div className="inline-error">{error}</div> : null}
 
-      {error && <p className="text-xs text-[var(--color-red)] break-words">{error}</p>}
-
-      <div className="flex gap-2 pt-1">
-        <button
-          type="submit"
-          disabled={saving}
-          className="px-3 py-1.5 text-xs bg-[var(--color-terminal-bg)] hover:border-[var(--color-accent2)] border border-[var(--color-accent)] rounded text-[var(--color-accent)] disabled:opacity-50"
-        >
-          {saving ? "Saving..." : isEdit ? "Save" : "Create"}
+      <div className="form-actions">
+        <button className="themed-button-secondary" type="submit" disabled={saving}>
+          {saving ? 'Saving' : isEdit ? 'Save profile' : 'Create profile'}
         </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="px-3 py-1.5 text-xs border border-[var(--color-sidebar-border)] rounded text-[var(--color-muted)] hover:text-[var(--color-text)]"
-        >
+        <button className="themed-button-ghost" type="button" onClick={onCancel}>
           Cancel
         </button>
       </div>
     </form>
-  );
+  )
 }
