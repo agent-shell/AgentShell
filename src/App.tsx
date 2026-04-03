@@ -196,6 +196,14 @@ function AppShell() {
         color: c.pageText,
         overflow: 'hidden',
         fontFamily: 'var(--font-ui)',
+        borderTop: theme.name === 'cyberpunk'
+          ? '1px solid transparent'
+          : 'none',
+        backgroundImage: theme.name === 'cyberpunk'
+          ? 'linear-gradient(var(--color-bg, #06030d), var(--color-bg, #06030d)), linear-gradient(90deg, transparent, #c084fc, #f472b6, transparent)'
+          : undefined,
+        backgroundOrigin: theme.name === 'cyberpunk' ? 'border-box' : undefined,
+        backgroundClip: theme.name === 'cyberpunk' ? 'padding-box, border-box' : undefined,
       }}
     >
       {/* Left sidebar */}

@@ -11,3 +11,23 @@ html, body, #root {
   height: 100%;
   overflow: hidden;
 }
+
+:root {
+  --font-ui: 'Rajdhani', sans-serif;
+  --font-shell: 'JetBrains Mono', monospace;
+}
+
+body {
+  font-family: var(--font-ui);
+  color: var(--color-text, #c8d4e8);
+  background: var(--color-bg, #060910);
+}
+
+button, input, textarea, select {
+  font-family: inherit;
+}
+
+/* Cursor blink for xterm */
+@keyframes bl { 0%,100%{opacity:.9} 50%{opacity:0} }
+/* Agent pulse */
+@keyframes pu { 0%,100%{opacity:1} 50%{opacity:0.3} }

@@ -29,6 +29,8 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 export interface UseTerminalOptions {
   sessionId: string | null;
   onDisconnected?: () => void;
+  xtermTheme?: import("@xterm/xterm").ITheme;
+  fontFamily?: string;
 }
 
 export interface UseTerminalReturn {
@@ -38,12 +40,11 @@ export interface UseTerminalReturn {
   fit: () => void;
   /** Access the SearchAddon for find-in-terminal UI. */
   searchAddon: React.RefObject<SearchAddon | null>;
+  updateXtermTheme: (theme: import("@xterm/xterm").ITheme, fontFamily: string) => void;
 }
 
-export function useTerminal({
-  sessionId,
-  onDisconnected,
-}: UseTerminalOptions): UseTerminalReturn {
+export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
+  const { sessionId, onDisconnected } = options;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -59,29 +60,12 @@ export function useTerminal({
     if (!container) return;
 
     const term = new Terminal({
-      fontFamily: '"JetBrains Mono", "Cascadia Code", "Fira Code", monospace',
+      fontFamily: options.fontFamily ?? '"JetBrains Mono", "Cascadia Code", monospace',
       fontSize: 14,
-      theme: {
+      theme: options.xtermTheme ?? {
         background: "#0d1117",
         foreground: "#c9d1d9",
         cursor: "#58a6ff",
-        selectionBackground: "#264f78",
-        black: "#484f58",
-        red: "#ff7b72",
-        green: "#3fb950",
-        yellow: "#d29922",
-        blue: "#58a6ff",
-        magenta: "#bc8cff",
-        cyan: "#39c5cf",
-        white: "#b1bac4",
-        brightBlack: "#6e7681",
-        brightRed: "#ffa198",
-        brightGreen: "#56d364",
-        brightYellow: "#e3b341",
-        brightBlue: "#79c0ff",
-        brightMagenta: "#d2a8ff",
-        brightCyan: "#56d4dd",
-        brightWhite: "#f0f6fc",
       },
       cursorBlink: true,
       allowProposedApi: true,
@@ -239,9 +223,18 @@ export function useTerminal({
     fitAddonRef.current?.fit();
   }, []);
 
+  const updateXtermTheme = useCallback((xtTheme: import("@xterm/xterm").ITheme, ff: string) => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.theme = xtTheme;
+    term.options.fontFamily = ff;
+    fitAddonRef.current?.fit();
+  }, []);
+
   return {
     containerRef,
     fit,
     searchAddon: searchAddonRef,
+    updateXtermTheme,
   };
 }
