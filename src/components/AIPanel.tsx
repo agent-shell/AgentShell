@@ -25,7 +25,7 @@ export interface AIPanelProps {
 
 interface ProposalCardProps {
   proposal: CommandProposal
-  onApprove: () => void
+  onApprove: (finalCommand: string) => void
   onDismiss: () => void
   theme: ReturnType<typeof useTheme>['theme']
 }
@@ -146,7 +146,7 @@ function ProposalCard({ proposal, onApprove, onDismiss, theme }: ProposalCardPro
                 : { opacity: 0.4, cursor: 'not-allowed' }),
             }}
             disabled={!runEnabled}
-            onClick={onApprove}
+            onClick={() => onApprove(editedCmd)}
           >
             Run
           </button>
@@ -403,11 +403,11 @@ export function AIPanel({
         })}
 
         {/* Pending proposals */}
-        {pendingProposals.map((p, i) => (
+        {pendingProposals.map((p) => (
           <ProposalCard
-            key={i}
+            key={`${p.command}-${p.riskLevel}`}
             proposal={p}
-            onApprove={() => onApprove(p)}
+            onApprove={(finalCommand) => onApprove({ ...p, command: finalCommand })}
             onDismiss={() => onDismiss(p)}
             theme={theme}
           />
