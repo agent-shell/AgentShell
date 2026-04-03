@@ -15,7 +15,9 @@ import { QuickConnect } from "./components/profiles/QuickConnect";
 import { ProfileList } from "./components/profiles/ProfileList";
 import { AIPanel, type ChatMessage, type CommandProposal } from "./components/AIPanel";
 import { ThemeSwitcher } from "./components/ThemeSwitcher";
-import { connectLocalShell } from "./lib/tauri";
+import { connectLocalShell, getScrollback } from "./lib/tauri";
+import { AIClient, PROPOSE_COMMAND_TOOL, type AISettings } from "./lib/ai/client";
+import { extractProposals } from "./lib/ai/streamParser";
 
 interface ActiveSession {
   sessionId: string;
@@ -30,6 +32,10 @@ function AppShell() {
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
   const [aiMessages, setAiMessages] = useState<ChatMessage[]>([]);
   const [aiProposals, setAiProposals] = useState<CommandProposal[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [claudeApiKey, setClaudeApiKey] = useState(() => localStorage.getItem("agentshell-claude-key") ?? "");
+  const [showKeyInput, setShowKeyInput] = useState(false);
+  const aiSettings: AISettings = { backend: "claude", claudeApiKey, claudeModel: "claude-sonnet-4-6" };
 
   function handleConnected(sessionId: string, label: string) {
     setSessions((prev) => {
@@ -58,15 +64,72 @@ function AppShell() {
 
   const activeSession = sessions[activeIdx] ?? null;
 
-  function handleSendMessage(text: string): void {
-    const msg: ChatMessage = { id: crypto.randomUUID(), role: 'user', text };
-    setAiMessages((prev) => [...prev, msg]);
-    // TODO: wire to Claude API in Step 9
+  async function handleSendMessage(text: string): Promise<void> {
+    const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", text };
+    setAiMessages((prev) => [...prev, userMsg]);
+    setAiLoading(true);
+
+    const assistantId = crypto.randomUUID();
+    const assistantMsg: ChatMessage = { id: assistantId, role: "assistant", text: "" };
+    setAiMessages((prev) => [...prev, assistantMsg]);
+
+    try {
+      // Build context from scrollback
+      const sessionId = activeSession?.sessionId;
+      let context = "";
+      if (sessionId) {
+        try {
+          context = await getScrollback(sessionId, 100);
+        } catch {
+          // scrollback unavailable, proceed without
+        }
+      }
+
+      const contextBlock = context
+        ? `Terminal context (last 100 lines):\n\`\`\`\n${context}\n\`\`\`\n\n`
+        : "";
+      const fullText = `${contextBlock}User: ${text}`;
+
+      const history = aiMessages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.text }));
+
+      const client = AIClient.fromSettings(aiSettings);
+      const deltas = [];
+
+      for await (const delta of client.chat(
+        [...history, { role: "user", content: fullText }],
+        [PROPOSE_COMMAND_TOOL],
+      )) {
+        deltas.push(delta);
+        if (delta.type === "text") {
+          setAiMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId ? { ...m, text: m.text + (delta.text ?? "") } : m
+            )
+          );
+        }
+        if (delta.type === "error") {
+          setAiMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId ? { ...m, text: `Error: ${delta.error}` } : m
+            )
+          );
+        }
+      }
+
+      const proposals = extractProposals(deltas);
+      if (proposals.length > 0) {
+        setAiProposals((prev) => [...prev, ...proposals]);
+      }
+    } finally {
+      setAiLoading(false);
+    }
   }
 
   function handleApprove(proposal: CommandProposal): void {
     setAiProposals((prev) => prev.filter((p) => p !== proposal));
-    // TODO: wire to execute_approved_command in Step 9
+    // execute_approved_command IPC wired in Step 9 (Rust executor)
   }
 
   return (
@@ -113,22 +176,70 @@ function AppShell() {
           >
             AgentShell
           </h1>
-          <button
-            onClick={() => setShowThemeSwitcher((v) => !v)}
-            title="Switch theme"
-            style={{
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: 13,
-              color: c.textMuted,
-              lineHeight: 1,
-              padding: '2px 4px',
-            }}
-          >
-            ◐
-          </button>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button
+              onClick={() => setShowKeyInput((v) => !v)}
+              title="Set Claude API key"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: 11,
+                color: claudeApiKey ? c.green : c.textMuted,
+                lineHeight: 1,
+                padding: '2px 4px',
+              }}
+            >
+              🔑
+            </button>
+            <button
+              onClick={() => setShowThemeSwitcher((v) => !v)}
+              title="Switch theme"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: 13,
+                color: c.textMuted,
+                lineHeight: 1,
+                padding: '2px 4px',
+              }}
+            >
+              ◐
+            </button>
+          </div>
         </div>
+
+        {/* API key input (collapsible) */}
+        {showKeyInput && (
+          <div style={{ padding: '8px 12px', borderBottom: `1px solid ${c.sidebarBorder}` }}>
+            <div style={{ fontSize: 9, color: c.textDim, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4, fontFamily: 'var(--font-ui)' }}>
+              Claude API Key
+            </div>
+            <input
+              type="password"
+              value={claudeApiKey}
+              onChange={(e) => {
+                setClaudeApiKey(e.target.value);
+                localStorage.setItem("agentshell-claude-key", e.target.value);
+              }}
+              placeholder="sk-ant-..."
+              style={{
+                width: '100%',
+                padding: '4px 8px',
+                fontSize: 10,
+                fontFamily: 'var(--font-shell)',
+                background: c.terminalBg,
+                border: `1px solid ${c.sidebarBorder}`,
+                borderRadius: 3,
+                color: c.pageText,
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+              autoComplete="off"
+            />
+          </div>
+        )}
 
         {/* Theme switcher (collapsible) */}
         {showThemeSwitcher && (
@@ -235,6 +346,7 @@ function AppShell() {
           pendingProposals={aiProposals}
           onApprove={handleApprove}
           onDismiss={(p) => setAiProposals((prev) => prev.filter((x) => x !== p))}
+          loading={aiLoading}
         />
       </div>
     </div>
