@@ -65,13 +65,15 @@ function AppShell() {
   const activeSession = sessions[activeIdx] ?? null;
 
   async function handleSendMessage(text: string): Promise<void> {
-    const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", text };
-    setAiMessages((prev) => [...prev, userMsg]);
-    setAiLoading(true);
+    // Snapshot history BEFORE state updates (avoids stale-closure issue)
+    const historySnapshot = aiMessages
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => ({ role: m.role as "user" | "assistant", content: m.text }));
 
+    const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", text };
     const assistantId = crypto.randomUUID();
-    const assistantMsg: ChatMessage = { id: assistantId, role: "assistant", text: "" };
-    setAiMessages((prev) => [...prev, assistantMsg]);
+    setAiMessages((prev) => [...prev, userMsg, { id: assistantId, role: "assistant", text: "" }]);
+    setAiLoading(true);
 
     try {
       // Build context from scrollback
@@ -90,17 +92,12 @@ function AppShell() {
         : "";
       const fullText = `${contextBlock}User: ${text}`;
 
-      const history = aiMessages
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .map((m) => ({ role: m.role as "user" | "assistant", content: m.text }));
+      const history = [...historySnapshot, { role: "user" as const, content: fullText }];
 
       const client = AIClient.fromSettings(aiSettings);
       const deltas = [];
 
-      for await (const delta of client.chat(
-        [...history, { role: "user", content: fullText }],
-        [PROPOSE_COMMAND_TOOL],
-      )) {
+      for await (const delta of client.chat(history, [PROPOSE_COMMAND_TOOL])) {
         deltas.push(delta);
         if (delta.type === "text") {
           setAiMessages((prev) =>
@@ -128,7 +125,9 @@ function AppShell() {
   }
 
   function handleApprove(proposal: CommandProposal): void {
-    setAiProposals((prev) => prev.filter((p) => p !== proposal));
+    setAiProposals((prev) =>
+      prev.filter((p) => p.command !== proposal.command || p.riskLevel !== proposal.riskLevel)
+    );
     // execute_approved_command IPC wired in Step 9 (Rust executor)
   }
 
@@ -345,7 +344,7 @@ function AppShell() {
           onSendMessage={handleSendMessage}
           pendingProposals={aiProposals}
           onApprove={handleApprove}
-          onDismiss={(p) => setAiProposals((prev) => prev.filter((x) => x !== p))}
+          onDismiss={(p) => setAiProposals((prev) => prev.filter((x) => x.command !== p.command || x.riskLevel !== p.riskLevel))}
           loading={aiLoading}
         />
       </div>

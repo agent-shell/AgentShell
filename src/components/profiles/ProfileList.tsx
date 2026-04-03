@@ -177,7 +177,7 @@ export function ProfileList({ onConnected }: ProfileListProps) {
                     autoFocus
                     onKeyDown={(e) => {
                       if (e.key === "Enter") submitConnect(profile, password, undefined);
-                      if (e.key === "Escape") setPendingConnect(null);
+                      if (e.key === "Escape") { setPendingConnect(null); setPassword(""); setKeyPassphrase(""); }
                     }}
                     autoComplete="current-password"
                   />
@@ -197,7 +197,7 @@ export function ProfileList({ onConnected }: ProfileListProps) {
                     autoFocus
                     onKeyDown={(e) => {
                       if (e.key === "Enter") submitConnect(profile, undefined, keyPassphrase || undefined);
-                      if (e.key === "Escape") setPendingConnect(null);
+                      if (e.key === "Escape") { setPendingConnect(null); setPassword(""); setKeyPassphrase(""); }
                     }}
                     autoComplete="current-password"
                   />
@@ -221,7 +221,11 @@ export function ProfileList({ onConnected }: ProfileListProps) {
                   {connecting === profile.id ? "Connecting…" : "Connect"}
                 </button>
                 <button
-                  onClick={() => setPendingConnect(null)}
+                  onClick={() => {
+                    setPendingConnect(null);
+                    setPassword("");
+                    setKeyPassphrase("");
+                  }}
                   className="px-3 py-1 text-xs border border-[#30363d] rounded text-[#8b949e] hover:text-[#c9d1d9]"
                 >
                   Cancel
