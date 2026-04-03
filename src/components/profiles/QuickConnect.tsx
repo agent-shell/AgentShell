@@ -83,7 +83,7 @@ export function QuickConnect({ onConnected }: QuickConnectProps) {
 
   return (
     <form onSubmit={handleConnect} className="space-y-2">
-      <p className="text-xs text-[#8b949e] font-medium uppercase tracking-wider">
+      <p className="text-xs text-[var(--color-muted)] font-medium uppercase tracking-wider">
         Quick Connect
       </p>
 
@@ -93,7 +93,7 @@ export function QuickConnect({ onConnected }: QuickConnectProps) {
         value={host}
         onChange={(e) => setHost(e.target.value)}
         required
-        className="w-full px-2 py-1.5 text-xs bg-[#161b22] border border-[#30363d] rounded text-[#c9d1d9] placeholder-[#6e7681] focus:outline-none focus:border-[#58a6ff]"
+        className="w-full px-2 py-1.5 text-xs bg-[var(--color-terminal-bg)] border border-[var(--color-sidebar-border)] rounded text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)]"
       />
 
       <div className="flex gap-2">
@@ -103,14 +103,14 @@ export function QuickConnect({ onConnected }: QuickConnectProps) {
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           required
-          className="flex-1 px-2 py-1.5 text-xs bg-[#161b22] border border-[#30363d] rounded text-[#c9d1d9] placeholder-[#6e7681] focus:outline-none focus:border-[#58a6ff]"
+          className="flex-1 px-2 py-1.5 text-xs bg-[var(--color-terminal-bg)] border border-[var(--color-sidebar-border)] rounded text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)]"
         />
         <input
           type="number"
           placeholder="22"
           value={port}
           onChange={(e) => setPort(e.target.value)}
-          className="w-16 px-2 py-1.5 text-xs bg-[#161b22] border border-[#30363d] rounded text-[#c9d1d9] placeholder-[#6e7681] focus:outline-none focus:border-[#58a6ff]"
+          className="w-16 px-2 py-1.5 text-xs bg-[var(--color-terminal-bg)] border border-[var(--color-sidebar-border)] rounded text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)]"
         />
       </div>
 
@@ -119,7 +119,7 @@ export function QuickConnect({ onConnected }: QuickConnectProps) {
         onChange={(e) =>
           setAuthKind(e.target.value as "password" | "publickey" | "agent")
         }
-        className="w-full px-2 py-1.5 text-xs bg-[#161b22] border border-[#30363d] rounded text-[#c9d1d9] focus:outline-none focus:border-[#58a6ff]"
+        className="w-full px-2 py-1.5 text-xs bg-[var(--color-terminal-bg)] border border-[var(--color-sidebar-border)] rounded text-[var(--color-text)] focus:outline-none focus:border-[var(--color-accent)]"
       >
         <option value="agent">SSH Agent</option>
         <option value="publickey">Private Key</option>
@@ -132,7 +132,7 @@ export function QuickConnect({ onConnected }: QuickConnectProps) {
           placeholder="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full px-2 py-1.5 text-xs bg-[#161b22] border border-[#30363d] rounded text-[#c9d1d9] placeholder-[#6e7681] focus:outline-none focus:border-[#58a6ff]"
+          className="w-full px-2 py-1.5 text-xs bg-[var(--color-terminal-bg)] border border-[var(--color-sidebar-border)] rounded text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)]"
         />
       )}
 
@@ -143,27 +143,27 @@ export function QuickConnect({ onConnected }: QuickConnectProps) {
             placeholder="~/.ssh/id_ed25519"
             value={keyPath}
             onChange={(e) => setKeyPath(e.target.value)}
-            className="w-full px-2 py-1.5 text-xs bg-[#161b22] border border-[#30363d] rounded text-[#c9d1d9] placeholder-[#6e7681] focus:outline-none focus:border-[#58a6ff]"
+            className="w-full px-2 py-1.5 text-xs bg-[var(--color-terminal-bg)] border border-[var(--color-sidebar-border)] rounded text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)]"
           />
           <input
             type="password"
             placeholder="passphrase (optional)"
             value={keyPassphrase}
             onChange={(e) => setKeyPassphrase(e.target.value)}
-            className="w-full px-2 py-1.5 text-xs bg-[#161b22] border border-[#30363d] rounded text-[#c9d1d9] placeholder-[#6e7681] focus:outline-none focus:border-[#58a6ff]"
+            className="w-full px-2 py-1.5 text-xs bg-[var(--color-terminal-bg)] border border-[var(--color-sidebar-border)] rounded text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-accent)]"
           />
         </>
       )}
 
       {error && (
-        <p className="text-xs text-[#ff7b72] break-words">{error}</p>
+        <p className="text-xs text-[var(--color-red)] break-words">{error}</p>
       )}
 
       <div className="flex gap-2">
         <button
           type="submit"
           disabled={connecting}
-          className="flex-1 py-1.5 text-xs font-medium bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded text-[#c9d1d9] transition-colors disabled:opacity-50"
+          className="flex-1 py-1.5 text-xs font-medium bg-[var(--color-terminal-bg)] hover:border-[var(--color-accent)] border border-[var(--color-sidebar-border)] rounded text-[var(--color-text)] transition-colors disabled:opacity-50"
         >
           {connecting ? "Connecting…" : "Connect"}
         </button>
@@ -172,7 +172,7 @@ export function QuickConnect({ onConnected }: QuickConnectProps) {
           onClick={handleSave}
           disabled={saving || !host || !username}
           title="Save as profile"
-          className="px-2 py-1.5 text-xs bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded text-[#8b949e] hover:text-[#c9d1d9] transition-colors disabled:opacity-40"
+          className="px-2 py-1.5 text-xs bg-[var(--color-terminal-bg)] hover:border-[var(--color-accent)] border border-[var(--color-sidebar-border)] rounded text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors disabled:opacity-40"
         >
           {saveMsg ?? "Save"}
         </button>

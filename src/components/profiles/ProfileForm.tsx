@@ -54,12 +54,12 @@ export function ProfileForm({ profile, onSave, onCancel }: ProfileFormProps) {
   }
 
   const inputCls =
-    "w-full px-2 py-1.5 text-xs bg-[#161b22] border border-[#30363d] rounded text-[#c9d1d9] placeholder-[#6e7681] focus:border-[#58a6ff] focus:outline-none";
-  const labelCls = "text-xs text-[#8b949e] uppercase tracking-wider";
+    "w-full px-2 py-1.5 text-xs bg-[var(--color-terminal-bg)] border border-[var(--color-sidebar-border)] rounded text-[var(--color-text)] placeholder:text-[var(--color-muted)] focus:border-[var(--color-accent)] focus:outline-none";
+  const labelCls = "text-xs text-[var(--color-muted)] uppercase tracking-wider";
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-2 p-3 bg-[#0d1117] border border-[#30363d] rounded">
-      <p className="text-xs text-[#58a6ff] font-semibold">
+    <form onSubmit={handleSubmit} className="space-y-2 p-3 bg-[var(--color-terminal-bg)] border border-[var(--color-sidebar-border)] rounded">
+      <p className="text-xs text-[var(--color-accent)] font-semibold">
         {isEdit ? "Edit Profile" : "New Profile"}
       </p>
 
@@ -172,20 +172,20 @@ export function ProfileForm({ profile, onSave, onCancel }: ProfileFormProps) {
         />
       </div>
 
-      {error && <p className="text-xs text-[#ff7b72] break-words">{error}</p>}
+      {error && <p className="text-xs text-[var(--color-red)] break-words">{error}</p>}
 
       <div className="flex gap-2 pt-1">
         <button
           type="submit"
           disabled={saving}
-          className="px-3 py-1.5 text-xs bg-[#21262d] hover:bg-[#30363d] border border-[#58a6ff] rounded text-[#58a6ff] disabled:opacity-50"
+          className="px-3 py-1.5 text-xs bg-[var(--color-terminal-bg)] hover:border-[var(--color-accent2)] border border-[var(--color-accent)] rounded text-[var(--color-accent)] disabled:opacity-50"
         >
           {saving ? "Saving..." : isEdit ? "Save" : "Create"}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="px-3 py-1.5 text-xs border border-[#30363d] rounded text-[#8b949e] hover:text-[#c9d1d9]"
+          className="px-3 py-1.5 text-xs border border-[var(--color-sidebar-border)] rounded text-[var(--color-muted)] hover:text-[var(--color-text)]"
         >
           Cancel
         </button>
