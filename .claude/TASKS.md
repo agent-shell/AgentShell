@@ -378,3 +378,332 @@ Constraints:
 - Do not change the ProfileForm, QuickConnect, or saveCurrentAsProfile exports.
 
 Commit: "feat(ui): group ProfileList by first tag"
+
+## TASK_UI_01 — Theme-aware terminal: xterm.js colors + overlay effects
+
+### Context
+
+The xterm.js terminal in `src/hooks/useTerminal.ts` has hardcoded GitHub-dark colors and font.
+`src/components/terminal/TerminalView.tsx` has a hardcoded Tailwind `bg-[#0d1117]` class.
+These must use theme tokens. Also add theme-specific overlay effects:
+- Industrial theme: subtle grid overlay using CSS `repeating-linear-gradient`
+- Cyberpunk theme: animated scanline overlay
+
+### Files to modify
+
+1. `src/hooks/useTerminal.ts`
+2. `src/components/terminal/TerminalView.tsx`
+
+### Step 1: Update useTerminal.ts
+
+Add two optional fields to `UseTerminalOptions`:
+```typescript
+export interface UseTerminalOptions {
+  sessionId: string | null;
+  onDisconnected?: () => void;
+  xtermTheme?: import('@xterm/xterm').ITheme;
+  fontFamily?: string;
+}
+```
+
+In the `useEffect([sessionId, onDisconnected])` where `new Terminal({...})` is called, replace the hardcoded values:
+- `fontFamily`: use `options.fontFamily ?? '"JetBrains Mono", "Cascadia Code", monospace'`
+- `theme`: use `options.xtermTheme ?? { background: "#0d1117", foreground: "#c9d1d9", cursor: "#58a6ff" }`
+
+Keep all other Terminal options unchanged. The `options` object is the whole `UseTerminalOptions` parameter.
+
+Also add a `termRef` exposure so TerminalView can update theme. Add to `UseTerminalReturn`:
+```typescript
+export interface UseTerminalReturn {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  fit: () => void;
+  searchAddon: React.RefObject<SearchAddon | null>;
+  updateXtermTheme: (theme: import('@xterm/xterm').ITheme, fontFamily: string) => void;
+}
+```
+
+Implement `updateXtermTheme`:
+```typescript
+const updateXtermTheme = useCallback((xtTheme: import('@xterm/xterm').ITheme, ff: string) => {
+  const term = termRef.current;
+  if (!term) return;
+  term.options.theme = xtTheme;
+  term.options.fontFamily = ff;
+  fitAddonRef.current?.fit();
+}, []);
+```
+
+Return `updateXtermTheme` in the return object.
+
+### Step 2: Update TerminalView.tsx
+
+Replace the current file content with the following implementation. This file imports useTheme and builds the xterm theme object from current theme tokens.
+
+```typescript
+/**
+ * TerminalView — renders the xterm.js terminal for one session.
+ * Uses the useTerminal hook for lifecycle management.
+ * Terminal colors and font are driven by the active theme.
+ */
+import { useEffect } from "react";
+import { useTheme } from "../../ThemeProvider";
+import { useTerminal } from "../../hooks/useTerminal";
+
+interface TerminalViewProps {
+  sessionId: string;
+  onDisconnected?: () => void;
+}
+
+export function TerminalView({ sessionId, onDisconnected }: TerminalViewProps) {
+  const { theme } = useTheme();
+  const c = theme.colors;
+
+  // Build xterm ITheme from current ThemeColors
+  const xtermTheme = {
+    background: c.terminalBg,
+    foreground: c.pageText,
+    cursor: c.cursorColor,
+    cursorAccent: c.terminalBg,
+    selectionBackground: c.accent + "33",
+    black: "#484f58",
+    red: c.red,
+    green: c.green,
+    yellow: theme.name === "minimal" ? "#d97706" : "#fbbf24",
+    blue: "#60a5fa",
+    magenta: c.accent,
+    cyan: c.accent2 ?? c.accent,
+    white: c.pageText,
+    brightBlack: c.textMuted,
+    brightRed: c.red,
+    brightGreen: c.green,
+    brightYellow: theme.name === "minimal" ? "#d97706" : "#fbbf24",
+    brightBlue: "#60a5fa",
+    brightMagenta: c.accent,
+    brightCyan: c.accent2 ?? c.accent,
+    brightWhite: c.pageText,
+  };
+
+  const { containerRef, updateXtermTheme } = useTerminal({
+    sessionId,
+    onDisconnected,
+    xtermTheme,
+    fontFamily: theme.fonts.shell,
+  });
+
+  // Update xterm theme when user switches themes (theme.name changes)
+  useEffect(() => {
+    updateXtermTheme(xtermTheme, theme.fonts.shell);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme.name]);
+
+  // Overlay styles per theme
+  const overlayStyle: React.CSSProperties | null =
+    theme.name === "industrial"
+      ? {
+          position: "absolute",
+          inset: 0,
+          pointerEvents: "none",
+          backgroundImage:
+            "repeating-linear-gradient(0deg, transparent, transparent 23px, rgba(45,212,191,0.025) 23px, rgba(45,212,191,0.025) 24px), repeating-linear-gradient(90deg, transparent, transparent 23px, rgba(45,212,191,0.025) 23px, rgba(45,212,191,0.025) 24px)",
+          zIndex: 1,
+        }
+      : theme.name === "cyberpunk"
+        ? {
+            position: "absolute",
+            inset: 0,
+            pointerEvents: "none",
+            backgroundImage:
+              "repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(192,132,252,0.018) 3px, rgba(192,132,252,0.018) 4px)",
+            animation: "scanlineMove 7s linear infinite",
+            zIndex: 1,
+          }
+        : null;
+
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%", background: c.terminalBg }}>
+      <div
+        ref={containerRef}
+        style={{ width: "100%", height: "100%", padding: "4px", boxSizing: "border-box" }}
+      />
+      {overlayStyle && <div style={overlayStyle} />}
+      <style>{`
+        @keyframes scanlineMove { from { background-position: 0 0; } to { background-position: 0 100%; } }
+      `}</style>
+    </div>
+  );
+}
+```
+
+### Constraints
+- `npx tsc --noEmit` must pass with zero errors after changes.
+- Do not change any behavior in useTerminal outside of: (1) using `xtermTheme`/`fontFamily` options in Terminal constructor, (2) adding `updateXtermTheme` function.
+- Do not remove any existing useTerminal logic (scrollback replay, Zmodem, ResizeObserver, FitAddon).
+- The `termRef` already exists in useTerminal — just use it in `updateXtermTheme`.
+- Import `React` if needed for `React.CSSProperties`.
+
+Commit: "feat(ui): theme-aware xterm.js colors + industrial grid / cyberpunk scanline overlays"
+
+---
+
+## TASK_UI_02 — Global font CSS + cyberpunk top border + misc polish
+
+### Context
+
+The app's root `font-family` is not set globally. The cyberpunk theme needs a visible top gradient border. Minor polish needed.
+
+### Files to modify
+
+1. `src/index.css`
+2. `src/App.tsx`
+
+### Step 1: index.css additions
+
+Append after the existing rules (do NOT remove existing rules):
+
+```css
+:root {
+  --font-ui: 'Rajdhani', sans-serif;
+  --font-shell: 'JetBrains Mono', monospace;
+}
+
+body {
+  font-family: var(--font-ui);
+  color: var(--color-text, #c8d4e8);
+  background: var(--color-bg, #060910);
+}
+
+button, input, textarea, select {
+  font-family: inherit;
+}
+
+/* Cursor blink for xterm */
+@keyframes bl { 0%,100%{opacity:.9} 50%{opacity:0} }
+/* Agent pulse */
+@keyframes pu { 0%,100%{opacity:1} 50%{opacity:0.3} }
+```
+
+### Step 2: App.tsx cyberpunk top border
+
+In `App.tsx`, the root `<div>` (the outermost one with `display: 'flex', height: '100vh'`) needs a conditional top border for cyberpunk.
+
+Find the root div that starts with:
+```
+style={{
+  display: 'flex',
+  height: '100vh',
+  ...
+```
+
+Add to its style:
+```typescript
+borderTop: theme.name === 'cyberpunk'
+  ? '1px solid transparent'
+  : 'none',
+backgroundImage: theme.name === 'cyberpunk'
+  ? 'linear-gradient(var(--color-bg, #06030d), var(--color-bg, #06030d)), linear-gradient(90deg, transparent, #c084fc, #f472b6, transparent)'
+  : undefined,
+backgroundOrigin: theme.name === 'cyberpunk' ? 'border-box' : undefined,
+backgroundClip: theme.name === 'cyberpunk' ? 'padding-box, border-box' : undefined,
+```
+
+This creates the cyberpunk gradient top border using the CSS background-clip border-box trick.
+
+### Constraints
+- `npx tsc --noEmit` must pass with zero errors.
+- Do NOT remove any existing rules from index.css.
+- Do NOT change any other logic in App.tsx beyond the root div style update.
+- Only add the `theme` destructuring at the top of AppShell if it's not already there: `const { theme } = useTheme();`
+
+Commit: "feat(ui): global font CSS vars + cyberpunk top gradient border"
+
+## TASK_UI_03 — Remove hardcoded GitHub-dark colors from profile components
+
+### Context
+
+`src/components/profiles/QuickConnect.tsx` and `src/components/profiles/ProfileList.tsx`
+use Tailwind classes with hardcoded GitHub-dark hex values (bg-[#161b22], text-[#c9d1d9], etc.).
+These break the light (minimal) theme and the cyberpunk theme. Must use theme tokens.
+
+### Files to modify
+
+1. `src/components/profiles/QuickConnect.tsx`
+2. `src/components/profiles/ProfileList.tsx`
+
+### Approach
+
+For BOTH files:
+- Add `import { useTheme } from "../../ThemeProvider";` at top
+- Inside the component function, add: `const { theme } = useTheme(); const c = theme.colors;`
+- Replace ALL Tailwind `className` attributes that contain hardcoded hex colors with `style={{...}}` inline styles using theme tokens
+- Keep non-color Tailwind classes (e.g. `space-y-2`, `flex`, `gap-2`) where convenient, or convert to inline styles — your choice
+- Never use hardcoded hex values; map colors to theme tokens as follows:
+  - bg-[#161b22] (input backgrounds) → `background: c.terminalBg`
+  - bg-[#21262d] (button backgrounds) → `background: c.sidebarBg`
+  - border-[#30363d] → `borderColor: c.sidebarBorder`
+  - text-[#c9d1d9] (primary text) → `color: c.pageText`
+  - text-[#8b949e] (muted text) → `color: c.textMuted`
+  - text-[#6e7681] (placeholder) → handled via CSS `color: c.textMuted`
+  - focus:border-[#58a6ff] → use `c.accent` on `:focus` (use onFocus/onBlur state OR just style the border normally with `c.accent`)
+  - text-[#ff7b72] (error) → `color: c.red`
+  - hover effects → simplify: just use the base color (no hover state needed)
+  - Font: `fontFamily: 'var(--font-ui)'` for labels/buttons, `fontFamily: 'var(--font-shell)'` for inputs/code
+
+### Input field style helper (define once, reuse)
+
+In QuickConnect.tsx, define this style object (use for all inputs and select):
+```typescript
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '4px 8px',
+  fontSize: 11,
+  fontFamily: 'var(--font-shell)',
+  background: c.terminalBg,
+  border: `1px solid ${c.sidebarBorder}`,
+  borderRadius: 3,
+  color: c.pageText,
+  outline: 'none',
+  boxSizing: 'border-box',
+};
+```
+
+Use `style={inputStyle}` for all `<input>` and `<select>` elements. For the short port input, override width inline: `style={{ ...inputStyle, width: 56 }}`.
+
+### Button style
+
+Buttons in QuickConnect:
+```typescript
+const btnStyle: React.CSSProperties = {
+  padding: '5px 0',
+  fontSize: 11,
+  fontFamily: 'var(--font-ui)',
+  background: c.sidebarBg,
+  border: `1px solid ${c.sidebarBorder}`,
+  borderRadius: 3,
+  color: c.textMuted,
+  cursor: 'pointer',
+  fontWeight: 500,
+};
+```
+
+Connect button: use `{ ...btnStyle, flex: 1, color: c.pageText }`.
+Save button: use `{ ...btnStyle, padding: '5px 8px' }`.
+
+### ProfileList.tsx approach
+
+- Read the current file. Replace EVERY occurrence of a Tailwind class string that contains `#` hex colors with an inline style using the same token mapping as above.
+- Group headers already use theme tokens (from TASK_08) — don't break those.
+- The search input at top: apply `inputStyle` pattern (without the `width: '100%'` wrapper, or include it).
+- Profile rows: replace `bg-[#161b22] border border-[#30363d]` with inline style `background: c.terminalBg, border: \`1px solid ${c.sidebarBorder}\``.
+- Active/hover profile rows: keep the accent border logic from existing code.
+- Connect button in expanded row: `border: \`1px solid ${c.accent}\`, color: c.accent, background: 'transparent'`.
+- Cancel button: `border: \`1px solid ${c.sidebarBorder}\`, color: c.textMuted`.
+
+### Constraints
+- `npx tsc --noEmit` must pass with zero errors.
+- Do NOT change any business logic (form submission, connect/save/profile CRUD).
+- Do NOT change the `saveCurrentAsProfile` export or any exported interfaces.
+- All `className` attributes that contain `#` colors must be removed.
+- All colors must come from `c.*` theme tokens only.
+- Remove the `useTheme` and theme token imports if already present — just ensure they're there once.
+
+Commit: "fix(ui): replace hardcoded GitHub-dark colors with theme tokens in profile components"

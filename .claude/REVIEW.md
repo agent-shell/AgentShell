@@ -62,3 +62,49 @@ TypeScript: zero errors.
 - ⚙ button in sidebar header, green when configured
 
 TypeScript: zero errors.
+
+---
+
+## Step 10: SFTP File Manager
+
+**Status: PASS**
+
+Rust:
+- `sftp/mod.rs`: `open_sftp()` briefly holds `ssh_transport` lock to open channel, releases before data I/O. Lock ordering: ssh_transport only, independent per spec.
+- `commands/sftp_commands.rs`: 6 IPC commands (list/download/upload/mkdir/delete/rename)
+- Added `russh-sftp = "2"` + `chrono = "0.4"` to Cargo.toml
+
+Frontend:
+- `SftpPanel.tsx`: breadcrumb navigation, file listing (dirs first), download via Blob URL, upload via file input, rename inline, delete with confirm()
+- SFTP toggle button in tab bar; split-pane layout (55/45 terminal/sftp) when active
+
+cargo check: zero warnings.
+
+---
+
+## Step 12: CEO Additions
+
+**Status: PASS**
+
+### 12a — Health indicators
+- `health/mod.rs`: `spawn_health_monitor()` — independent task, polls `uptime; nproc` via exec channel every N seconds (default 60, clamp 10-300)
+- Zmodem guard: skips polling when `PtyMode::Zmodem`
+- Load classification: load_1m < cpu_count = green; < 2× = yellow; ≥ 2× = red
+- Frontend: colored 6px dot per tab, updates via `health-update-{id}` event
+
+### 12b — Tag grouping
+- Dispatched to Codex (TASK_08): groups ProfileList by `tags[0] ?? "Ungrouped"`, sorted alpha with Ungrouped last. Headers only shown when > 1 group.
+- tsc: zero errors. Codex committed via Claude Code after sandbox restriction.
+
+### 12c — Session recording
+- `recording/mod.rs`: asciinema v2 format (header JSON + `[elapsed,"o","data"]` events)
+- PTY batcher task forwards raw bytes to recording_tx channel (new SessionHandle field)
+- 100MB warning event, 500MB auto-stop. Files stored at `~/.agentshell/recordings/`
+- ⏺ / ⏹ toggle button in tab bar controls per-session recording
+
+### 12d — Command history FTS5
+- `commands/history_commands.rs`: SQLite FTS5 virtual table with auto-trigger on insert
+- `search_command_history` + `recent_command_history` Tauri commands
+- `HistorySearch.tsx`: Ctrl+R modal, real-time FTS5 search as user types (120ms debounce), arrow-key navigation, Enter pastes command to active PTY
+
+cargo check: zero warnings | npx tsc --noEmit: zero errors
