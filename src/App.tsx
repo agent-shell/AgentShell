@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo, useState } from 'react'
+import { Component, useEffect, useMemo, useRef, useState } from 'react'
 import '@xterm/xterm/css/xterm.css'
 import {
   Bot,
@@ -22,6 +22,7 @@ import {
   connectLocalShell,
   executeApprovedCommand,
   getScrollback,
+  listLiveSessions,
   onHealthUpdate,
   onRecordingStopped,
   startHealthMonitor,
@@ -34,14 +35,9 @@ import { extractProposals } from './lib/ai/streamParser'
 import { HistorySearch } from './components/history/HistorySearch'
 import { SettingsPanel, loadAISettings } from './components/settings/SettingsPanel'
 import { SftpPanel } from './components/sftp/SftpPanel'
+import { mergeRecoveredSessions, recoveredActiveIndex, type RecoverableSession } from './lib/sessionRecovery'
 
-interface ActiveSession {
-  sessionId: string
-  label: string
-  kind: 'ssh' | 'local'
-  host?: string
-  username?: string
-}
+interface ActiveSession extends RecoverableSession {}
 
 const QA_PREVIEW_SESSION: ActiveSession = {
   sessionId: 'qa-preview',
@@ -82,19 +78,20 @@ function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
 
+async function startWindowDrag(event: React.MouseEvent<HTMLElement>): Promise<void> {
+  if (!isTauriRuntime()) return
+  if (event.button !== 0) return
+  const target = event.target
+  if (target instanceof Element && target.closest('.no-drag')) return
+  await getCurrentWindow().startDragging().catch(() => undefined)
+}
+
 function backendLabel(settings: AISettings): string {
   if (settings.backend === 'claude') return settings.claudeModel ?? 'claude'
   if (settings.backend === 'ollama') return settings.ollamaModel ?? 'ollama'
   return settings.openaiCompatModel ?? 'openai'
 }
 
-async function startWindowDrag(event: React.MouseEvent<HTMLElement>): Promise<void> {
-  if (!isTauriRuntime()) return
-  if (event.button !== 0) return
-  const target = event.target
-  if (target instanceof HTMLElement && target.closest('.no-drag')) return
-  await getCurrentWindow().startDragging().catch(() => undefined)
-}
 
 function AppShell() {
   const { theme } = useTheme()
@@ -113,6 +110,13 @@ function AppShell() {
   const [aiSettings, setAiSettings] = useState<AISettings>(() => loadAISettings())
   const [healthMap, setHealthMap] = useState<Record<string, HealthData>>({})
   const [recordingMap, setRecordingMap] = useState<Record<string, string | null>>({})
+  const [dragTabIndex, setDragTabIndex] = useState<number | null>(null)
+  const [dragOverTabIndex, setDragOverTabIndex] = useState<number | null>(null)
+  const sessionsRef = useRef(sessions)
+  const activeIndexRef = useRef(activeIndex)
+  const sessionCleanupRef = useRef<Record<string, Array<() => void>>>({})
+  useEffect(() => { sessionsRef.current = sessions }, [sessions])
+  useEffect(() => { activeIndexRef.current = activeIndex }, [activeIndex])
 
   const activeSession = sessions[activeIndex] ?? null
   const currentHealth = activeSession ? healthMap[activeSession.sessionId] : undefined
@@ -154,8 +158,98 @@ function AppShell() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+
+    let cancelled = false
+
+    void listLiveSessions()
+      .then((liveSessions) => {
+        if (cancelled || liveSessions.length === 0) return
+
+        const recovered = liveSessions.map((session) => ({
+          sessionId: session.session_id,
+          label: session.label,
+          kind: session.kind,
+          host: session.host,
+          username: session.username,
+        }) satisfies ActiveSession)
+
+        for (const session of recovered) {
+          ensureSessionWiring(session.sessionId)
+        }
+
+        setSessions((current) => mergeRecoveredSessions(current, recovered))
+        if (!sessionsRef.current.length) {
+          setActiveIndex(recoveredActiveIndex(recovered))
+        }
+      })
+      .catch(() => undefined)
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      for (const cleanups of Object.values(sessionCleanupRef.current)) {
+        for (const cleanup of cleanups) {
+          cleanup()
+        }
+      }
+      sessionCleanupRef.current = {}
+    }
+  }, [])
+
+  function clearSessionWiring(sessionId: string) {
+    const cleanups = sessionCleanupRef.current[sessionId]
+    if (cleanups) {
+      for (const cleanup of cleanups) {
+        cleanup()
+      }
+      delete sessionCleanupRef.current[sessionId]
+    }
+  }
+
+  function ensureSessionWiring(sessionId: string) {
+    if (sessionCleanupRef.current[sessionId]) return
+
+    const cleanups: Array<() => void> = []
+    sessionCleanupRef.current[sessionId] = cleanups
+
+    startHealthMonitor(sessionId, 60).catch(() => undefined)
+
+    onHealthUpdate(sessionId, (health) => {
+      setHealthMap((current) => ({ ...current, [sessionId]: health }))
+    }).then((unlisten) => {
+      if (!sessionCleanupRef.current[sessionId]) {
+        unlisten()
+        return
+      }
+      cleanups.push(unlisten)
+    }).catch(() => undefined)
+
+    onRecordingStopped(sessionId, () => {
+      setRecordingMap((current) => ({ ...current, [sessionId]: null }))
+    }).then((unlisten) => {
+      if (!sessionCleanupRef.current[sessionId]) {
+        unlisten()
+        return
+      }
+      cleanups.push(unlisten)
+    }).catch(() => undefined)
+  }
+
   function registerSession(sessionId: string, label: string, meta?: { kind: 'ssh' | 'local'; host?: string; username?: string }) {
+    ensureSessionWiring(sessionId)
     setSessions((current) => {
+      const existingIndex = current.findIndex((session) => session.sessionId === sessionId)
+      if (existingIndex !== -1) {
+        setActiveIndex(existingIndex)
+        return current
+      }
+
       const next = [
         ...current,
         {
@@ -169,17 +263,20 @@ function AppShell() {
       setActiveIndex(next.length - 1)
       return next
     })
-
-    startHealthMonitor(sessionId, 60).catch(() => undefined)
-    onHealthUpdate(sessionId, (health) => {
-      setHealthMap((current) => ({ ...current, [sessionId]: health }))
-    }).catch(() => undefined)
-    onRecordingStopped(sessionId, () => {
-      setRecordingMap((current) => ({ ...current, [sessionId]: null }))
-    }).catch(() => undefined)
   }
 
   function handleDisconnected(sessionId: string) {
+    clearSessionWiring(sessionId)
+    setHealthMap((current) => {
+      const next = { ...current }
+      delete next[sessionId]
+      return next
+    })
+    setRecordingMap((current) => {
+      const next = { ...current }
+      delete next[sessionId]
+      return next
+    })
     setSessions((current) => {
       const next = current.filter((session) => session.sessionId !== sessionId)
       setActiveIndex((previous) => Math.max(0, Math.min(previous, next.length - 1)))
@@ -211,6 +308,7 @@ function AppShell() {
   }
 
   async function handleSendMessage(text: string): Promise<void> {
+    const targetSession = activeSession
     const historySnapshot = aiMessages
       .filter((message) => message.role === 'user' || message.role === 'assistant')
       .map((message) => ({ role: message.role, content: message.text }))
@@ -222,9 +320,9 @@ function AppShell() {
 
     try {
       let context = ''
-      if (activeSession) {
+      if (targetSession) {
         try {
-          context = await getScrollback(activeSession.sessionId, 100)
+          context = await getScrollback(targetSession.sessionId, 100)
         } catch {
           // continue without scrollback
         }
@@ -352,6 +450,49 @@ function AppShell() {
     await getCurrentWindow().close().catch(() => undefined)
   }
 
+  function handleTabMouseDown(e: React.MouseEvent, fromIndex: number) {
+    if (e.button !== 0) return
+    e.stopPropagation()
+    const startX = e.clientX
+    let dragging = false
+    let toIndex = fromIndex
+    setDragTabIndex(fromIndex)
+
+    function onMouseMove(me: MouseEvent) {
+      if (!dragging && Math.abs(me.clientX - startX) > 6) dragging = true
+      if (!dragging) return
+      const el = document.elementFromPoint(me.clientX, me.clientY)
+      const tabEl = el?.closest('[data-tab-index]') as HTMLElement | null
+      if (tabEl) {
+        const idx = parseInt(tabEl.dataset.tabIndex ?? '', 10)
+        if (!isNaN(idx) && idx !== fromIndex) {
+          toIndex = idx
+          setDragOverTabIndex(idx)
+        }
+      }
+    }
+
+    function onMouseUp() {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+      if (dragging && toIndex !== fromIndex) {
+        const cur = sessionsRef.current
+        const activeId = cur[activeIndexRef.current]?.sessionId
+        const next = [...cur]
+        const [moved] = next.splice(fromIndex, 1)
+        next.splice(toIndex, 0, moved)
+        setSessions(next)
+        const newActive = next.findIndex(s => s.sessionId === activeId)
+        if (newActive !== -1) setActiveIndex(newActive)
+      }
+      setDragTabIndex(null)
+      setDragOverTabIndex(null)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+  }
+
   return (
     <div className={`app-shell theme-${theme.name}`}>
       <div className="window-shell">
@@ -380,15 +521,20 @@ function AppShell() {
                       : health?.status === 'red'
                         ? 'var(--color-red)'
                         : 'var(--color-text-dim)'
+                const isActive = session.sessionId === displayActiveSession?.sessionId || (!activeSession && index === 0)
+                const isDragging = dragTabIndex === index
+                const isDragOver = dragOverTabIndex === index && dragTabIndex !== index
                 return (
                   <button
-                    className={`session-tab no-drag${session.sessionId === displayActiveSession?.sessionId || (!activeSession && index === 0) ? ' is-active' : ''}`}
+                    className={`session-tab no-drag${isActive ? ' is-active' : ''}${isDragging ? ' is-dragging' : ''}${isDragOver ? ' is-drag-over' : ''}`}
                     key={session.sessionId}
                     type="button"
+                    data-tab-index={index}
                     onClick={() => {
                       if (!sessions.length) return
                       setActiveIndex(index)
                     }}
+                    onMouseDown={(e) => handleTabMouseDown(e, index)}
                   >
                     <span className="session-tab__dot" style={{ background: dotColor }} />
                     {session.label}
@@ -533,7 +679,7 @@ function AppShell() {
                     </div>
 
                     {activeSession ? (
-                      <TerminalView key={activeSession.sessionId} sessionId={activeSession.sessionId} onDisconnected={() => handleDisconnected(activeSession.sessionId)} />
+                      <TerminalView key={activeSession.sessionId} sessionId={activeSession.sessionId} onDisconnected={handleDisconnected} />
                     ) : (
                       <div className="terminal-preview-body">
                         <div className="terminal-preview-line terminal-preview-line--muted">ubuntu@cd-aida-kagent-dev:~/liangli/skillhub$ hostname</div>

@@ -124,8 +124,9 @@ export function SettingsPanel({ settings, onChange, onClose }: SettingsPanelProp
               className="themed-input"
               value={local.openaiCompatBaseUrl ?? ''}
               onChange={(e) => update({ openaiCompatBaseUrl: e.target.value })}
-              placeholder="https://api.openai.com"
+              placeholder="https://api.openai.com or https://host/v1"
             />
+            <span className="muted-text">Supports host root, `/v1`, or a full `/chat/completions` URL.</span>
           </label>
           <label className="form-grid">
             <span className="section-label">API key</span>

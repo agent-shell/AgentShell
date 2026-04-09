@@ -22,7 +22,7 @@ use commands::sftp_commands::{
 };
 use commands::ssh_commands::{
     connect_local_shell, connect_ssh, disconnect_session, get_scrollback, get_scrollback_raw,
-    resize_pty, send_input,
+    list_live_sessions, resize_pty, send_input,
 };
 use commands::zmodem_commands::start_zmodem_send;
 use session::SessionManager;
@@ -34,6 +34,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(session_manager)
         .invoke_handler(tauri::generate_handler![
             // SSH / PTY
@@ -44,6 +45,7 @@ pub fn run() {
             resize_pty,
             get_scrollback,
             get_scrollback_raw,
+            list_live_sessions,
             // Profiles
             list_profiles,
             save_profile,

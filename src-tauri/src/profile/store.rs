@@ -11,5 +11,6 @@ pub struct ConnectionProfile {
     pub username: String,
     pub auth_kind: String, // "password" | "publickey" | "agent"
     pub key_path: Option<String>,
+    pub password: Option<String>,
     pub tags: Vec<String>,
 }

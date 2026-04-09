@@ -1,29 +1,41 @@
 import { useState } from 'react'
-import { saveProfile, type ConnectionProfile } from '../../lib/tauri'
+import { FolderOpen } from 'lucide-react'
+import { saveProfile, openFilePicker, type ConnectionProfile } from '../../lib/tauri'
 
 interface ProfileFormProps {
   profile?: ConnectionProfile
+  existingGroups?: string[]
   onSave: (saved: ConnectionProfile) => void
   onCancel: () => void
 }
 
-export function ProfileForm({ profile, onSave, onCancel }: ProfileFormProps) {
+export function ProfileForm({ profile, existingGroups = [], onSave, onCancel }: ProfileFormProps) {
   const isEdit = profile !== undefined
   const [name, setName] = useState(profile?.name ?? '')
   const [host, setHost] = useState(profile?.host ?? '')
   const [port, setPort] = useState(String(profile?.port ?? 22))
   const [username, setUsername] = useState(profile?.username ?? '')
   const [authKind, setAuthKind] = useState<'password' | 'publickey' | 'agent'>(profile?.auth_kind ?? 'publickey')
+  const [password, setPassword] = useState(profile?.password ?? '')
   const [keyPath, setKeyPath] = useState(profile?.key_path ?? '')
-  const [tags, setTags] = useState(profile?.tags?.join(', ') ?? '')
+  const [group, setGroup] = useState(profile?.tags?.[0] ?? '')
+  const [extraTags, setExtraTags] = useState(profile?.tags?.slice(1).join(', ') ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  async function handleBrowseKey() {
+    const path = await openFilePicker('Select SSH Private Key').catch(() => null)
+    if (path) setKeyPath(path)
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     setError(null)
     try {
+      const groupTag = group.trim()
+      const otherTags = extraTags.split(',').map((t) => t.trim()).filter(Boolean)
+      const tags = groupTag ? [groupTag, ...otherTags] : otherTags
       const saved = await saveProfile({
         id: profile?.id ?? crypto.randomUUID(),
         name: name.trim() || `${username}@${host}`,
@@ -32,10 +44,8 @@ export function ProfileForm({ profile, onSave, onCancel }: ProfileFormProps) {
         username: username.trim(),
         auth_kind: authKind,
         key_path: authKind === 'publickey' && keyPath.trim() ? keyPath.trim() : undefined,
-        tags: tags
-          .split(',')
-          .map((part) => part.trim())
-          .filter(Boolean),
+        password: authKind === 'password' && password.trim() ? password.trim() : undefined,
+        tags,
       })
       onSave(saved)
     } catch (err) {
@@ -64,24 +74,11 @@ export function ProfileForm({ profile, onSave, onCancel }: ProfileFormProps) {
       <div className="form-grid form-grid--two">
         <label className="form-grid">
           <span className="section-label">Host</span>
-          <input
-            className="themed-input"
-            value={host}
-            onChange={(e) => setHost(e.target.value)}
-            placeholder="192.168.1.10"
-            required
-          />
+          <input className="themed-input" value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.10" required />
         </label>
         <label className="form-grid">
           <span className="section-label">Port</span>
-          <input
-            className="themed-input"
-            value={port}
-            onChange={(e) => setPort(e.target.value)}
-            type="number"
-            min={1}
-            max={65535}
-          />
+          <input className="themed-input" value={port} onChange={(e) => setPort(e.target.value)} type="number" min={1} max={65535} />
         </label>
       </div>
 
@@ -99,16 +96,44 @@ export function ProfileForm({ profile, onSave, onCancel }: ProfileFormProps) {
         </select>
       </label>
 
+      {authKind === 'password' ? (
+        <label className="form-grid">
+          <span className="section-label">Password</span>
+          <input className="themed-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="saved password (optional)" autoComplete="new-password" />
+        </label>
+      ) : null}
+
       {authKind === 'publickey' ? (
         <label className="form-grid">
           <span className="section-label">Key path</span>
-          <input className="themed-input" value={keyPath} onChange={(e) => setKeyPath(e.target.value)} placeholder="~/.ssh/id_ed25519" />
+          <div className="input-with-action">
+            <input className="themed-input" value={keyPath} onChange={(e) => setKeyPath(e.target.value)} placeholder="~/.ssh/id_ed25519" />
+            <button type="button" className="icon-button" onClick={() => void handleBrowseKey()} title="Browse key file">
+              <FolderOpen size={13} />
+            </button>
+          </div>
         </label>
       ) : null}
 
       <label className="form-grid">
-        <span className="section-label">Tags</span>
-        <input className="themed-input" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="production, us-east" />
+        <span className="section-label">Group</span>
+        <input
+          className="themed-input"
+          list="profile-form-group-list"
+          value={group}
+          onChange={(e) => setGroup(e.target.value)}
+          placeholder="production"
+        />
+        <datalist id="profile-form-group-list">
+          {existingGroups.map((g) => (
+            <option key={g} value={g} />
+          ))}
+        </datalist>
+      </label>
+
+      <label className="form-grid">
+        <span className="section-label">Tags (optional)</span>
+        <input className="themed-input" value={extraTags} onChange={(e) => setExtraTags(e.target.value)} placeholder="SG, k8s, web" />
       </label>
 
       {error ? <div className="inline-error">{error}</div> : null}

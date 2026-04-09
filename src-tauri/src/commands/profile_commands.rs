@@ -98,7 +98,8 @@ pub async fn connect_profile(
 
     let auth = match profile.auth_kind.as_str() {
         "password" => SshAuth::Password(
-            password.ok_or_else(|| AgentShellError::AuthFailed("password required".into()))?,
+            password.or(profile.password.clone())
+                .ok_or_else(|| AgentShellError::AuthFailed("password required".into()))?,
         ),
         "publickey" => SshAuth::PublicKey {
             key_path: profile
@@ -124,7 +125,7 @@ pub async fn connect_profile(
     };
 
     let session_id = std::sync::Arc::clone(&session_manager)
-        .connect_ssh(app, params)
+        .connect_ssh(app, params, profile.name.clone())
         .await
         .map_err(|e| AgentShellError::ConnectionFailed(e.to_string()))?;
 

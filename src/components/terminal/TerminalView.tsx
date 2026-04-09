@@ -4,7 +4,7 @@ import { useTerminal } from '../../hooks/useTerminal'
 
 interface TerminalViewProps {
   sessionId: string
-  onDisconnected?: () => void
+  onDisconnected?: (sessionId: string) => void
 }
 
 export function TerminalView({ sessionId, onDisconnected }: TerminalViewProps) {

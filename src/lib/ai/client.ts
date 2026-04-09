@@ -49,6 +49,75 @@ export interface AISettings {
   openaiCompatModel?: string;
 }
 
+function trimTrailingSlash(value: string): string {
+  return value.trim().replace(/\/+$/, "");
+}
+
+function buildOpenAICompatEndpoint(baseUrl: string): string {
+  const normalized = trimTrailingSlash(baseUrl);
+  if (!normalized) return "";
+  if (/\/chat\/completions$/i.test(normalized)) return normalized;
+  if (/\/v\d+$/i.test(normalized)) return `${normalized}/chat/completions`;
+  return `${normalized}/v1/chat/completions`;
+}
+
+function buildOpenAICompatPayload(
+  model: string,
+  messages: Message[],
+  tools: Tool[],
+  includeTools: boolean,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    model,
+    stream: true,
+    messages: messages.map((m) => ({ role: m.role, content: m.content })),
+  };
+
+  if (includeTools && tools.length) {
+    payload.tools = tools.map((t) => ({
+      type: "function",
+      function: { name: t.name, description: t.description, parameters: t.input_schema },
+    }));
+  }
+
+  return payload;
+}
+
+async function readResponseText(resp: Response): Promise<string> {
+  try {
+    return (await resp.text()).trim();
+  } catch {
+    return "";
+  }
+}
+
+function extractOpenAICompatErrorMessage(bodyText: string): string {
+  if (!bodyText) return "";
+  try {
+    const parsed = JSON.parse(bodyText) as { error?: { message?: string } };
+    if (parsed.error?.message) return parsed.error.message;
+  } catch {
+    // Fall through to raw text.
+  }
+  return bodyText;
+}
+
+function formatOpenAICompatError(resp: Response, bodyText: string): string {
+  const details = extractOpenAICompatErrorMessage(bodyText);
+  return details
+    ? `OpenAI-compat error: ${resp.status} ${resp.statusText} - ${details}`
+    : `OpenAI-compat error: ${resp.status} ${resp.statusText}`;
+}
+
+function shouldRetryOpenAICompatWithoutTools(resp: Response, bodyText: string): boolean {
+  if (![400, 404, 422, 501].includes(resp.status)) return false;
+  const haystack = bodyText.toLowerCase();
+  const mentionsTools = /tools?|tool_calls?|functions?/.test(haystack);
+  const soundsUnsupported =
+    /unsupported|not supported|unknown|unrecognized|unexpected|invalid/.test(haystack);
+  return mentionsTools && soundsUnsupported;
+}
+
 export class AIClient {
   constructor(private backend: AIBackend) {}
 
@@ -190,26 +259,51 @@ export class AIClient {
       this.backend.type === "openai-compat"
         ? this.backend
         : { baseUrl: "", apiKey: "", model: "gpt-4o" };
+    const endpoint = buildOpenAICompatEndpoint(baseUrl);
+
+    if (!endpoint || !apiKey.trim() || !model.trim()) {
+      yield {
+        type: "error",
+        error: "OpenAI-compatible backend requires Base URL, API key, and model.",
+      };
+      return;
+    }
+
     try {
-      const resp = await fetch(`${baseUrl}/v1/chat/completions`, {
+      let resp = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({
-          model,
-          stream: true,
-          tools: tools.map((t) => ({
-            type: "function",
-            function: { name: t.name, description: t.description, parameters: t.input_schema },
-          })),
-          messages: messages.map((m) => ({ role: m.role, content: m.content })),
-        }),
+        body: JSON.stringify(buildOpenAICompatPayload(model, messages, tools, true)),
       });
 
-      if (!resp.ok || !resp.body) {
-        yield { type: "error", error: `OpenAI-compat error: ${resp.status} ${resp.statusText}` };
+      if (!resp.ok) {
+        const bodyText = await readResponseText(resp);
+        if (shouldRetryOpenAICompatWithoutTools(resp, bodyText)) {
+          resp = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(buildOpenAICompatPayload(model, messages, tools, false)),
+          });
+        } else {
+          yield { type: "error", error: formatOpenAICompatError(resp, bodyText) };
+          return;
+        }
+      }
+
+      if (!resp.ok) {
+        const bodyText = await readResponseText(resp);
+        yield { type: "error", error: formatOpenAICompatError(resp, bodyText) };
+        return;
+      }
+
+      if (!resp.body) {
+        yield { type: "error", error: "OpenAI-compat error: empty response body" };
         return;
       }
 

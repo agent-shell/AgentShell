@@ -10,7 +10,7 @@
  *
  * Working loop milestone: characters from the SSH server appear in the terminal.
  */
-import { useEffect, useRef, useCallback } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -28,7 +28,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 
 export interface UseTerminalOptions {
   sessionId: string | null;
-  onDisconnected?: () => void;
+  onDisconnected?: (sessionId: string) => void;
   xtermTheme?: import("@xterm/xterm").ITheme;
   fontFamily?: string;
 }
@@ -45,6 +45,9 @@ export interface UseTerminalReturn {
 
 export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
   const { sessionId, onDisconnected } = options;
+  const emitDisconnected = useEffectEvent((disconnectedSessionId: string) => {
+    onDisconnected?.(disconnectedSessionId);
+  });
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -163,7 +166,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
     // Subscribe to disconnect events
     onSessionDisconnected(sessionId, () => {
       term.writeln("\r\n\x1b[33m[Session closed]\x1b[0m");
-      onDisconnected?.();
+      emitDisconnected(sessionId);
     }).then((unlisten) => {
       unlistenDisconnectRef.current = unlisten;
     });
@@ -217,7 +220,7 @@ export function useTerminal(options: UseTerminalOptions): UseTerminalReturn {
       unlistenDisconnectRef.current = null;
       unlistenZmodemRef.current = null;
     };
-  }, [sessionId, onDisconnected]);
+  }, [emitDisconnected, sessionId]);
 
   const fit = useCallback(() => {
     fitAddonRef.current?.fit();

@@ -386,6 +386,20 @@ a {
   padding-inline: 10px;
 }
 
+.session-tab[draggable="true"] {
+  cursor: grab;
+}
+
+.session-tab.is-dragging {
+  opacity: 0.35;
+  cursor: grabbing;
+}
+
+.session-tab.is-drag-over {
+  border-color: var(--color-accent) !important;
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent) !important;
+}
+
 .session-tab__dot,
 .status-dot,
 .pulse-dot {
@@ -513,7 +527,14 @@ a {
   color: var(--color-page-text);
   padding: 10px 11px;
   font-size: 11px;
+  font-family: var(--font-ui);
   transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.input-with-action {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
 }
 
 .sidebar-search input {

@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react'
-import { connectSsh } from '../../lib/tauri'
+import { FolderOpen } from 'lucide-react'
+import { connectSsh, openFilePicker } from '../../lib/tauri'
 import { saveCurrentAsProfile } from './ProfileList'
 
 interface QuickConnectProps {
+  existingGroups?: string[]
   onConnected: (sessionId: string, label: string, meta?: { kind: 'ssh' | 'local'; host?: string; username?: string }) => void
 }
 
-export function QuickConnect({ onConnected }: QuickConnectProps) {
+export function QuickConnect({ existingGroups = [], onConnected }: QuickConnectProps) {
   const [host, setHost] = useState('')
   const [port, setPort] = useState('22')
   const [username, setUsername] = useState('')
@@ -16,10 +18,16 @@ export function QuickConnect({ onConnected }: QuickConnectProps) {
   const [keyPassphrase, setKeyPassphrase] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
+  const [saveGroup, setSaveGroup] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
 
   const label = useMemo(() => (host ? host : 'quick connect'), [host])
+
+  async function handleBrowseKey() {
+    const path = await openFilePicker('Select SSH Private Key').catch(() => null)
+    if (path) setKeyPath(path)
+  }
 
   async function handleConnect(e: React.FormEvent) {
     e.preventDefault()
@@ -60,6 +68,7 @@ export function QuickConnect({ onConnected }: QuickConnectProps) {
         username,
         authKind,
         authKind === 'publickey' ? keyPath || undefined : undefined,
+        saveGroup.trim() || undefined,
       )
       setSaveMessage('Saved')
       window.setTimeout(() => setSaveMessage(null), 1800)
@@ -113,7 +122,12 @@ export function QuickConnect({ onConnected }: QuickConnectProps) {
         <>
           <label className="form-grid">
             <span className="section-label">Key path</span>
-            <input className="themed-input" value={keyPath} onChange={(e) => setKeyPath(e.target.value)} placeholder="~/.ssh/id_ed25519" />
+            <div className="input-with-action">
+              <input className="themed-input" value={keyPath} onChange={(e) => setKeyPath(e.target.value)} placeholder="~/.ssh/id_ed25519" />
+              <button type="button" className="icon-button" onClick={() => void handleBrowseKey()} title="Browse key file">
+                <FolderOpen size={13} />
+              </button>
+            </div>
           </label>
           <label className="form-grid">
             <span className="section-label">Passphrase</span>
@@ -121,6 +135,22 @@ export function QuickConnect({ onConnected }: QuickConnectProps) {
           </label>
         </>
       ) : null}
+
+      <label className="form-grid">
+        <span className="section-label">Group (when saving)</span>
+        <input
+          className="themed-input"
+          list="qc-group-list"
+          value={saveGroup}
+          onChange={(e) => setSaveGroup(e.target.value)}
+          placeholder="production"
+        />
+        <datalist id="qc-group-list">
+          {existingGroups.map((g) => (
+            <option key={g} value={g} />
+          ))}
+        </datalist>
+      </label>
 
       {error ? <div className="inline-error">{error}</div> : null}
 

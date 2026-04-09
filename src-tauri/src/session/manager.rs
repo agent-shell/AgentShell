@@ -17,6 +17,8 @@
 /// INVARIANT: never acquire a higher-numbered lock while holding a lower-numbered one.
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use serde::Serialize;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
@@ -78,6 +80,21 @@ pub struct SessionHandle {
     pub recording_tx: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<crate::recording::RecordingEvent>>>>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct LiveSessionInfo {
+    pub session_id: String,
+    pub label: String,
+    pub kind: String,
+    pub host: Option<String>,
+    pub username: Option<String>,
+}
+
+struct SessionRecord {
+    handle: Arc<SessionHandle>,
+    info: LiveSessionInfo,
+    order: u64,
+}
+
 /// Detect the 4-byte Zmodem ZRINIT magic in a raw PTY byte slice.
 /// Returns the byte offset of `**\x18B` (ZPAD ZPAD ZDLE ZHEX) if present.
 fn find_zrinit(data: &[u8]) -> Option<usize> {
@@ -86,19 +103,25 @@ fn find_zrinit(data: &[u8]) -> Option<usize> {
 
 /// Global session registry.
 pub struct SessionManager {
-    sessions: Mutex<HashMap<Uuid, Arc<SessionHandle>>>,
+    sessions: Mutex<HashMap<Uuid, SessionRecord>>,
+    next_order: AtomicU64,
 }
 
 impl SessionManager {
     pub fn new() -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
+            next_order: AtomicU64::new(0),
         }
     }
 
     /// Get a session by ID. Acquires `sessions` briefly, releases before returning.
     pub async fn get(&self, id: Uuid) -> Option<Arc<SessionHandle>> {
-        self.sessions.lock().await.get(&id).cloned()
+        self.sessions
+            .lock()
+            .await
+            .get(&id)
+            .map(|record| Arc::clone(&record.handle))
     }
 
     /// Connect a new SSH session and start the PTY output loop.
@@ -107,10 +130,13 @@ impl SessionManager {
         self: Arc<Self>,
         app: tauri::AppHandle,
         params: SshConnectParams,
+        label: String,
     ) -> anyhow::Result<Uuid> {
         use tauri::Emitter;
 
         let id = Uuid::new_v4();
+        let host = params.host.clone();
+        let username = params.username.clone();
         let mut ssh = SshSession::connect(params).await?;
         let channel = ssh.open_pty_shell(220, 50).await?;
 
@@ -135,7 +161,20 @@ impl SessionManager {
             recording_tx: Arc::new(Mutex::new(None)),
         });
 
-        self.sessions.lock().await.insert(id, handle.clone());
+        self.sessions.lock().await.insert(
+            id,
+            SessionRecord {
+                handle: handle.clone(),
+                info: LiveSessionInfo {
+                    session_id: id.to_string(),
+                    label,
+                    kind: "ssh".into(),
+                    host: Some(host),
+                    username: Some(username),
+                },
+                order: self.next_order.fetch_add(1, Ordering::Relaxed),
+            },
+        );
 
         // Unbounded channel: output task → scrollback+batcher task
         let (raw_tx, mut raw_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
@@ -275,6 +314,7 @@ impl SessionManager {
     pub async fn connect_local_shell(
         self: Arc<Self>,
         app: tauri::AppHandle,
+        label: String,
     ) -> anyhow::Result<Uuid> {
         use std::io::Read;
         use tauri::Emitter;
@@ -298,7 +338,20 @@ impl SessionManager {
             recording_tx: Arc::new(Mutex::new(None)),
         });
 
-        self.sessions.lock().await.insert(id, handle.clone());
+        self.sessions.lock().await.insert(
+            id,
+            SessionRecord {
+                handle: handle.clone(),
+                info: LiveSessionInfo {
+                    session_id: id.to_string(),
+                    label,
+                    kind: "local".into(),
+                    host: None,
+                    username: None,
+                },
+                order: self.next_order.fetch_add(1, Ordering::Relaxed),
+            },
+        );
 
         let (raw_tx, mut raw_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
 
@@ -525,5 +578,12 @@ impl SessionManager {
         let lines: Vec<&str> = text.lines().collect();
         let start = lines.len().saturating_sub(line_count);
         Ok(lines[start..].join("\n"))
+    }
+
+    pub async fn list_live_sessions(&self) -> Vec<LiveSessionInfo> {
+        let sessions = self.sessions.lock().await;
+        let mut records: Vec<&SessionRecord> = sessions.values().collect();
+        records.sort_by_key(|record| record.order);
+        records.into_iter().map(|record| record.info.clone()).collect()
     }
 }

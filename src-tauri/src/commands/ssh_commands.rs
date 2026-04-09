@@ -3,7 +3,7 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::commands::error::AgentShellError;
-use crate::session::SessionManager;
+use crate::session::{LiveSessionInfo, SessionManager};
 use crate::ssh::client::{SshAuth, SshConnectParams};
 
 #[derive(Debug, Deserialize)]
@@ -28,6 +28,7 @@ pub async fn connect_ssh(
     session_manager: State<'_, std::sync::Arc<SessionManager>>,
     args: ConnectSshArgs,
 ) -> Result<ConnectSshResult, AgentShellError> {
+    let label = args.host.clone();
     let auth = match args.auth_kind.as_str() {
         "password" => SshAuth::Password(
             args.password
@@ -55,7 +56,7 @@ pub async fn connect_ssh(
     };
 
     let session_id = std::sync::Arc::clone(&session_manager)
-        .connect_ssh(app, params)
+        .connect_ssh(app, params, label)
         .await
         .map_err(|e| AgentShellError::ConnectionFailed(e.to_string()))?;
 
@@ -117,13 +118,20 @@ pub async fn connect_local_shell(
     session_manager: State<'_, std::sync::Arc<SessionManager>>,
 ) -> Result<ConnectSshResult, AgentShellError> {
     let session_id = std::sync::Arc::clone(&session_manager)
-        .connect_local_shell(app)
+        .connect_local_shell(app, "local shell".into())
         .await
         .map_err(|e| AgentShellError::ConnectionFailed(e.to_string()))?;
 
     Ok(ConnectSshResult {
         session_id: session_id.to_string(),
     })
+}
+
+#[tauri::command]
+pub async fn list_live_sessions(
+    session_manager: State<'_, std::sync::Arc<SessionManager>>,
+) -> Result<Vec<LiveSessionInfo>, AgentShellError> {
+    Ok(session_manager.list_live_sessions().await)
 }
 
 #[tauri::command]

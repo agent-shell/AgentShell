@@ -4,6 +4,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { open as dialogOpen } from "@tauri-apps/plugin-dialog";
 
 // ── SSH commands ──────────────────────────────────────────────────────────────
 
@@ -21,12 +22,24 @@ export interface ConnectSshResult {
   session_id: string;
 }
 
+export interface LiveSessionInfo {
+  session_id: string;
+  label: string;
+  kind: "ssh" | "local";
+  host?: string;
+  username?: string;
+}
+
 export function connectSsh(args: ConnectSshArgs): Promise<ConnectSshResult> {
   return invoke("connect_ssh", { args });
 }
 
 export function connectLocalShell(): Promise<ConnectSshResult> {
   return invoke("connect_local_shell");
+}
+
+export function listLiveSessions(): Promise<LiveSessionInfo[]> {
+  return invoke("list_live_sessions");
 }
 
 export function disconnectSession(sessionId: string): Promise<void> {
@@ -70,7 +83,13 @@ export interface ConnectionProfile {
   username: string;
   auth_kind: "password" | "publickey" | "agent";
   key_path?: string;
+  password?: string;
   tags: string[];
+}
+
+export async function openFilePicker(title: string): Promise<string | null> {
+  const result = await dialogOpen({ title, multiple: false })
+  return typeof result === 'string' ? result : null
 }
 
 export function listProfiles(): Promise<ConnectionProfile[]> {
