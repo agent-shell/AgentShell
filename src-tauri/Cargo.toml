@@ -61,3 +61,7 @@ russh-sftp = "2"
 
 # Timestamps for recording
 chrono = { version = "0.4", features = ["serde"] }
+
+# HTTP client for Rust-side AI API calls (bypasses WebKit network issues)
+reqwest = { version = "0.12", features = ["json", "stream"] }
+futures-util = "0.3"

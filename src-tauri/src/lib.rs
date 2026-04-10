@@ -11,6 +11,8 @@ mod ssh;
 use std::sync::Arc;
 
 use commands::agent_commands::{execute_approved_command, get_context};
+#[allow(unused_imports)]
+use commands::agent_commands::send_ai_message;
 use commands::health_commands::{get_server_health, start_health_monitor};
 use commands::history_commands::{recent_command_history, search_command_history};
 use commands::profile_commands::{connect_profile, delete_profile, list_profiles, save_profile};
@@ -56,6 +58,7 @@ pub fn run() {
             // AI Agent
             get_context,
             execute_approved_command,
+            send_ai_message,
             // SFTP
             list_sftp_dir,
             download_sftp_file,

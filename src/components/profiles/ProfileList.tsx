@@ -306,7 +306,7 @@ export function ProfileList({ activeSessionLabel, filterQuery = '', suppressEmpt
       ))}
 
       {showNewGroup ? (
-        <div className="form-grid" style={{ padding: '6px 12px' }}>
+        <div style={{ padding: '4px 12px 8px' }}>
           <input
             className="themed-input"
             autoFocus
@@ -321,12 +321,12 @@ export function ProfileList({ activeSessionLabel, filterQuery = '', suppressEmpt
         </div>
       ) : (
         <button
-          className="icon-button"
           type="button"
-          style={{ margin: '6px 12px', display: 'flex', alignItems: 'center', gap: 4 }}
+          className="profile-new-group-btn"
           onClick={() => setShowNewGroup(true)}
         >
-          <Plus size={11} /> New group
+          <Plus size={10} />
+          New group
         </button>
       )}
 

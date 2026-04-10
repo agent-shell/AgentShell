@@ -125,12 +125,6 @@ export function AIPanel({
     setInput('')
   }
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    e.stopPropagation()
-    handleSend()
-  }
-
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -220,7 +214,7 @@ export function AIPanel({
         <div ref={bottomRef} />
       </div>
 
-      <form className="ai-composer" onSubmit={handleSubmit}>
+      <div className="ai-composer">
         <textarea
           className="themed-textarea"
           rows={1}
@@ -229,10 +223,10 @@ export function AIPanel({
           onKeyDown={handleKeyDown}
           placeholder="Ask about this session..."
         />
-        <button className="ai-send" type="submit" disabled={loading || !input.trim()}>
+        <button className="ai-send" type="button" onClick={handleSend} disabled={loading || !input.trim()}>
           →
         </button>
-      </form>
+      </div>
     </aside>
   )
 }

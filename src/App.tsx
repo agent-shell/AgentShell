@@ -23,14 +23,16 @@ import {
   executeApprovedCommand,
   getScrollback,
   listLiveSessions,
+  onAiEvent,
   onHealthUpdate,
   onRecordingStopped,
+  sendAiMessage,
   startHealthMonitor,
   startRecording,
   stopRecording,
   type HealthData,
 } from './lib/tauri'
-import { AIClient, PROPOSE_COMMAND_TOOL, type AISettings } from './lib/ai/client'
+import { type AISettings } from './lib/ai/client'
 import { extractProposals } from './lib/ai/streamParser'
 import { HistorySearch } from './components/history/HistorySearch'
 import { SettingsPanel, loadAISettings } from './components/settings/SettingsPanel'
@@ -318,6 +320,8 @@ function AppShell() {
     setAiMessages((current) => [...current, userMessage, { id: assistantId, role: 'assistant', text: '' }])
     setAiLoading(true)
 
+    const requestId = crypto.randomUUID()
+
     try {
       let context = ''
       if (targetSession) {
@@ -332,32 +336,81 @@ function AppShell() {
         ? `Terminal context (last 100 lines):\n\`\`\`\n${context}\n\`\`\`\n\nUser: ${text}`
         : `User: ${text}`
 
-      const client = AIClient.fromSettings(aiSettings)
-      const deltas = []
+      const messages = [...historySnapshot, { role: 'user' as const, content: fullText }]
 
-      for await (const delta of client.chat([...historySnapshot, { role: 'user', content: fullText }], [PROPOSE_COMMAND_TOOL])) {
-        deltas.push(delta)
-        if (delta.type === 'text') {
-          setAiMessages((current) =>
-            current.map((message) =>
-              message.id === assistantId ? { ...message, text: `${message.text}${delta.text ?? ''}` } : message,
-            ),
-          )
-        }
-        if (delta.type === 'error') {
-          setAiMessages((current) =>
-            current.map((message) =>
-              message.id === assistantId ? { ...message, text: `Error: ${delta.error}` } : message,
-            ),
-          )
-        }
-      }
+      // Collect deltas for proposal extraction
+      const deltas: Array<{ type: string; text?: string; tool_name?: string; tool_input?: Record<string, unknown> }> = []
 
-      const proposals = extractProposals(deltas)
-      if (proposals.length) {
-        setAiProposals((current) => [...current, ...proposals])
-      }
-    } finally {
+      // Declare before the listener so the cleanup reference is always accessible
+      // from inside the callback (closures capture the variable binding, not the value).
+      let unlistenAi: (() => void) | undefined
+
+      unlistenAi = await onAiEvent(requestId, (payload) => {
+        try {
+          deltas.push({ type: payload.kind, text: payload.text, tool_name: payload.tool_name, tool_input: payload.tool_input })
+
+          if (payload.kind === 'text') {
+            setAiMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId
+                  ? { ...message, text: `${message.text}${payload.text ?? ''}` }
+                  : message,
+              ),
+            )
+          }
+          if (payload.kind === 'error') {
+            setAiMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId
+                  ? { ...message, text: `Error: ${payload.error ?? 'Unknown error'}` }
+                  : message,
+              ),
+            )
+          }
+          if (payload.kind === 'done' || payload.kind === 'error') {
+            unlistenAi?.()
+            const proposals = extractProposals(
+              deltas.map((d) => ({
+                type: d.type as 'text' | 'tool_use' | 'error' | 'done',
+                text: d.text,
+                tool_name: d.tool_name,
+                tool_input: d.tool_input,
+              })),
+            )
+            if (proposals.length) {
+              setAiProposals((current) => [...current, ...proposals])
+            }
+            setAiLoading(false)
+          }
+        } catch (callbackErr) {
+          console.error('[AI] event callback error:', callbackErr)
+          unlistenAi?.()
+          setAiLoading(false)
+        }
+      })
+
+      // Build backend options from settings
+      const backendOptions = (() => {
+        switch (aiSettings.backend) {
+          case 'claude':
+            return { apiKey: aiSettings.claudeApiKey, model: aiSettings.claudeModel }
+          case 'ollama':
+            return { baseUrl: aiSettings.ollamaBaseUrl, model: aiSettings.ollamaModel }
+          case 'openai-compat':
+            return { baseUrl: aiSettings.openaiCompatBaseUrl, apiKey: aiSettings.openaiCompatApiKey, model: aiSettings.openaiCompatModel }
+        }
+      })()
+
+      await sendAiMessage(requestId, aiSettings.backend, messages, backendOptions)
+    } catch (err) {
+      const msg = err != null && typeof err === 'object' && 'message' in err
+        ? String((err as { message: unknown }).message)
+        : String(err)
+      setAiMessages((current) =>
+        current.map((message) =>
+          message.id === assistantId ? { ...message, text: `Error: ${msg}` } : message,
+        ),
+      )
       setAiLoading(false)
     }
   }

@@ -225,6 +225,47 @@ export function executeApprovedCommand(sessionId: string, command: string): Prom
   return invoke("execute_approved_command", { sessionId, command });
 }
 
+export interface AiMessageArg {
+  role: string;
+  content: string;
+}
+
+export interface AiEventPayload {
+  kind: "text" | "tool_use" | "error" | "done";
+  text?: string;
+  tool_name?: string;
+  tool_input?: Record<string, unknown>;
+  error?: string;
+}
+
+/**
+ * Initiate a streaming AI request from the Rust backend (bypasses WebKit network).
+ * Results arrive as `ai-event-{requestId}` Tauri events — subscribe with onAiEvent().
+ */
+export function sendAiMessage(
+  requestId: string,
+  backend: string,
+  messages: AiMessageArg[],
+  options?: { apiKey?: string; model?: string; baseUrl?: string },
+): Promise<void> {
+  return invoke("send_ai_message", {
+    requestId,
+    backend,
+    messages,
+    apiKey: options?.apiKey,
+    model: options?.model,
+    baseUrl: options?.baseUrl,
+  });
+}
+
+/** Subscribe to streaming AI events for a specific request. */
+export function onAiEvent(
+  requestId: string,
+  callback: (payload: AiEventPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<AiEventPayload>(`ai-event-${requestId}`, (e) => callback(e.payload));
+}
+
 // ── Events ────────────────────────────────────────────────────────────────────
 
 /**
