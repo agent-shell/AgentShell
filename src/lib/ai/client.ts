@@ -47,6 +47,7 @@ export interface AISettings {
   openaiCompatBaseUrl?: string;
   openaiCompatApiKey?: string;
   openaiCompatModel?: string;
+  executionMode?: "manual" | "auto";
 }
 
 function trimTrailingSlash(value: string): string {

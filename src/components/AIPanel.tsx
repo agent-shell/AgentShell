@@ -28,7 +28,10 @@ export interface AIPanelProps {
   pendingProposals: CommandProposal[]
   onApprove: (proposal: CommandProposal, finalCommand?: string) => void
   onDismiss: (proposal: CommandProposal) => void
+  autoExecuted?: CommandProposal[]
+  onDismissAutoExecuted?: (proposal: CommandProposal) => void
   loading?: boolean
+  executionMode?: 'manual' | 'auto'
 }
 
 interface ProposalCardProps {
@@ -82,13 +85,22 @@ function ProposalCard({ proposal, onApprove, onDismiss }: ProposalCardProps): Re
         ) : null}
 
         <div className="proposal-card__actions">
-          <button className="themed-button-secondary" type="button" disabled={!runAllowed} onClick={() => onApprove(editedCommand)}>
+          <button
+            className="themed-button-secondary"
+            type="button"
+            disabled={!runAllowed}
+            onClick={() => onApprove(editedCommand)}
+          >
             Run
           </button>
           <button className="themed-button-ghost" type="button" onClick={() => setEditing((value) => !value)}>
             {editing ? 'Done' : 'Edit'}
           </button>
-          <button className="themed-button-ghost" type="button" onClick={() => navigator.clipboard.writeText(editedCommand).catch(() => undefined)}>
+          <button
+            className="themed-button-ghost"
+            type="button"
+            onClick={() => navigator.clipboard.writeText(editedCommand).catch(() => undefined)}
+          >
             Copy
           </button>
           <button className="themed-button-ghost" type="button" onClick={onDismiss}>
@@ -96,6 +108,27 @@ function ProposalCard({ proposal, onApprove, onDismiss }: ProposalCardProps): Re
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+interface AutoExecutedCardProps {
+  proposal: CommandProposal
+  onDismiss: () => void
+}
+
+function AutoExecutedCard({ proposal, onDismiss }: AutoExecutedCardProps): React.ReactElement {
+  return (
+    <div className="auto-card">
+      <div className="auto-card__header">
+        <span className="auto-card__icon">✓</span>
+        <span className="auto-card__label">Auto-executed</span>
+        <button className="auto-card__dismiss" type="button" onClick={onDismiss}>
+          ✕
+        </button>
+      </div>
+      <div className="auto-card__code">{proposal.command}</div>
+      <div className="auto-card__explanation">{proposal.explanation}</div>
     </div>
   )
 }
@@ -110,14 +143,17 @@ export function AIPanel({
   pendingProposals,
   onApprove,
   onDismiss,
+  autoExecuted = [],
+  onDismissAutoExecuted,
   loading = false,
+  executionMode = 'manual',
 }: AIPanelProps): React.ReactElement {
   const [input, setInput] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, pendingProposals, loading])
+  }, [messages, pendingProposals, autoExecuted, loading])
 
   function handleSend() {
     if (!input.trim() || loading) return
@@ -138,7 +174,9 @@ export function AIPanel({
         <div className="ai-header">
           <span className={`ai-avatar${loading ? ' loading-pulse' : ''}`}>AI</span>
           <span className="ai-title">{title}</span>
-          <span className="ai-badge">{backendLabel}</span>
+          <span className="ai-badge">
+            {executionMode === 'auto' ? 'AUTO·EXEC' : backendLabel}
+          </span>
         </div>
         <div className="ai-stats">
           {stats.map((stat) => (
@@ -177,7 +215,9 @@ export function AIPanel({
       <div className="ai-header">
         <span className={`ai-avatar${loading ? ' loading-pulse' : ''}`}>AI</span>
         <span className="ai-title">{title}</span>
-        <span className="ai-badge">{backendLabel}</span>
+        <span className={`ai-badge${executionMode === 'auto' ? ' ai-badge--active' : ''}`}>
+          {executionMode === 'auto' ? 'AUTO·EXEC' : backendLabel}
+        </span>
       </div>
 
       <div className="ai-stats">
@@ -201,6 +241,14 @@ export function AIPanel({
             </div>
           )
         })}
+
+        {autoExecuted.map((proposal) => (
+          <AutoExecutedCard
+            key={`auto-${proposal.command}-${proposal.riskLevel}`}
+            proposal={proposal}
+            onDismiss={() => onDismissAutoExecuted?.(proposal)}
+          />
+        ))}
 
         {pendingProposals.map((proposal) => (
           <ProposalCard

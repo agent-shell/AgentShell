@@ -57,6 +57,28 @@ export function SettingsPanel({ settings, onChange, onClose }: SettingsPanelProp
         </button>
       </div>
 
+      <div>
+        <span className="section-label" style={{ display: 'block', marginBottom: 8 }}>Execution mode</span>
+        <div className="segment-toggle">
+          <button
+            type="button"
+            className={`segment-toggle__option${local.executionMode !== 'auto' ? ' is-active' : ''}`}
+            onClick={() => update({ executionMode: 'manual' })}
+          >
+            Manual
+            <span className="segment-toggle__desc">Approve each command</span>
+          </button>
+          <button
+            type="button"
+            className={`segment-toggle__option${local.executionMode === 'auto' ? ' is-active' : ''}`}
+            onClick={() => update({ executionMode: 'auto' })}
+          >
+            Auto
+            <span className="segment-toggle__desc">Auto-execute all commands</span>
+          </button>
+        </div>
+      </div>
+
       <label className="form-grid">
         <span className="section-label">Backend</span>
         <select className="themed-select" value={local.backend} onChange={(e) => update({ backend: e.target.value as AISettings['backend'] })}>

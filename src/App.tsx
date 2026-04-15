@@ -2,24 +2,31 @@ import { Component, useEffect, useMemo, useRef, useState } from 'react'
 import '@xterm/xterm/css/xterm.css'
 import {
   Bot,
+  Copy,
   FolderTree,
   History,
   Palette,
+  RefreshCw,
+  Save,
   Search,
   Settings2,
   Square,
   TerminalSquare,
+  X,
 } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import './index.css'
 import { ThemeProvider, useTheme } from './ThemeProvider'
 import { TerminalView } from './components/terminal/TerminalView'
 import { QuickConnect } from './components/profiles/QuickConnect'
-import { ProfileList } from './components/profiles/ProfileList'
+import { ProfileList, saveCurrentAsProfile } from './components/profiles/ProfileList'
 import { AIPanel, type ChatMessage, type CommandProposal } from './components/AIPanel'
 import { ThemeSwitcher } from './components/ThemeSwitcher'
+import { TabContextMenu } from './components/layout/TabContextMenu'
 import {
   connectLocalShell,
+  connectSsh,
+  disconnectSession,
   executeApprovedCommand,
   getScrollback,
   listLiveSessions,
@@ -108,12 +115,14 @@ function AppShell() {
   const [sidebarFilter, setSidebarFilter] = useState('')
   const [aiMessages, setAiMessages] = useState<ChatMessage[]>([])
   const [aiProposals, setAiProposals] = useState<CommandProposal[]>([])
+  const [autoExecuted, setAutoExecuted] = useState<CommandProposal[]>([])
   const [aiLoading, setAiLoading] = useState(false)
   const [aiSettings, setAiSettings] = useState<AISettings>(() => loadAISettings())
   const [healthMap, setHealthMap] = useState<Record<string, HealthData>>({})
   const [recordingMap, setRecordingMap] = useState<Record<string, string | null>>({})
   const [dragTabIndex, setDragTabIndex] = useState<number | null>(null)
   const [dragOverTabIndex, setDragOverTabIndex] = useState<number | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; session: ActiveSession; index: number } | null>(null)
   const sessionsRef = useRef(sessions)
   const activeIndexRef = useRef(activeIndex)
   const sessionCleanupRef = useRef<Record<string, Array<() => void>>>({})
@@ -286,6 +295,70 @@ function AppShell() {
     })
   }
 
+  async function handleDisconnectSession(sessionId: string) {
+    await disconnectSession(sessionId).catch(() => {})
+    handleDisconnected(sessionId)
+  }
+
+  async function handleCloneSession(session: ActiveSession) {
+    try {
+      if (session.kind === 'ssh' && session.host && session.username) {
+        const result = await connectSsh({
+          host: session.host,
+          port: 22,
+          username: session.username,
+          auth_kind: 'agent',
+        })
+        registerSession(result.session_id, session.label, {
+          kind: session.kind,
+          host: session.host,
+          username: session.username,
+        })
+      } else if (session.kind === 'local') {
+        const result = await connectLocalShell()
+        registerSession(result.session_id, 'local shell', { kind: 'local' })
+      }
+    } catch (err) {
+      console.error('clone session failed:', err)
+    }
+  }
+
+  async function handleReconnectSession(session: ActiveSession) {
+    if (session.kind === 'ssh' && session.host && session.username) {
+      await handleDisconnectSession(session.sessionId)
+      try {
+        const result = await connectSsh({
+          host: session.host,
+          port: 22,
+          username: session.username,
+          auth_kind: 'agent',
+        })
+        registerSession(result.session_id, session.label, {
+          kind: session.kind,
+          host: session.host,
+          username: session.username,
+        })
+      } catch (err) {
+        console.error('reconnect failed:', err)
+      }
+    }
+  }
+
+  async function handleSaveAsProfile(session: ActiveSession) {
+    if (session.kind !== 'ssh' || !session.host || !session.username) return
+    try {
+      await saveCurrentAsProfile(
+        session.label,
+        session.host,
+        22,
+        session.username,
+        'publickey',
+      )
+    } catch {
+      // silently fail — user can retry manually
+    }
+  }
+
   async function handleLocalShell() {
     try {
       const result = await connectLocalShell()
@@ -378,7 +451,17 @@ function AppShell() {
               })),
             )
             if (proposals.length) {
-              setAiProposals((current) => [...current, ...proposals])
+              if (activeSession && aiSettings.executionMode === 'auto') {
+                // In auto mode, ALL commands are auto-executed - trusted devops mode
+                for (const proposal of proposals) {
+                  executeApprovedCommand(activeSession.sessionId, proposal.command).catch((err) => {
+                    console.error('[AI] auto-execute failed:', err)
+                  })
+                }
+                setAutoExecuted((current) => [...current, ...proposals])
+              } else {
+                setAiProposals((current) => [...current, ...proposals])
+              }
             }
             setAiLoading(false)
           }
@@ -431,6 +514,32 @@ function AppShell() {
     executeApprovedCommand(activeSession.sessionId, command).catch((err) => {
       console.error('execute_approved_command failed:', err)
     })
+  }
+
+  function handleDismissProposal(proposal: CommandProposal): void {
+    setAiProposals((current) =>
+      current.filter(
+        (item) =>
+          !(
+            item.command === proposal.command &&
+            item.explanation === proposal.explanation &&
+            item.riskLevel === proposal.riskLevel
+          ),
+      ),
+    )
+  }
+
+  function handleDismissAutoExecuted(proposal: CommandProposal): void {
+    setAutoExecuted((current) =>
+      current.filter(
+        (item) =>
+          !(
+            item.command === proposal.command &&
+            item.explanation === proposal.explanation &&
+            item.riskLevel === proposal.riskLevel
+          ),
+      ),
+    )
   }
 
   const aiStats = useMemo(() => {
@@ -588,6 +697,10 @@ function AppShell() {
                       setActiveIndex(index)
                     }}
                     onMouseDown={(e) => handleTabMouseDown(e, index)}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      setContextMenu({ x: e.clientX, y: e.clientY, session, index })
+                    }}
                   >
                     <span className="session-tab__dot" style={{ background: dotColor }} />
                     {session.label}
@@ -818,19 +931,11 @@ function AppShell() {
             pendingProposals={displayAiProposals}
             onSendMessage={handleSendMessage}
             onApprove={(proposal, finalCommand) => handleApproveProposal(proposal, finalCommand)}
-            onDismiss={(proposal) =>
-              setAiProposals((current) =>
-                current.filter(
-                  (item) =>
-                    !(
-                      item.command === proposal.command &&
-                      item.explanation === proposal.explanation &&
-                      item.riskLevel === proposal.riskLevel
-                    ),
-                ),
-              )
-            }
+            onDismiss={handleDismissProposal}
+            autoExecuted={autoExecuted}
+            onDismissAutoExecuted={handleDismissAutoExecuted}
             loading={aiLoading}
+            executionMode={aiSettings.executionMode ?? 'manual'}
           />
         </div>
       </div>
@@ -861,6 +966,57 @@ function AppShell() {
             })
           }}
           onClose={() => setShowHistory(false)}
+        />
+      ) : null}
+
+      {contextMenu ? (
+        <TabContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={[
+            {
+              id: 'clone',
+              label: 'Clone session',
+              icon: <Copy size={12} />,
+            },
+            {
+              id: 'reconnect',
+              label: 'Reconnect',
+              icon: <RefreshCw size={12} />,
+              disabled: contextMenu.session.kind !== 'ssh',
+            },
+            {
+              id: 'save-profile',
+              label: 'Save as profile',
+              icon: <Save size={12} />,
+              disabled: contextMenu.session.kind !== 'ssh',
+            },
+            {
+              id: 'disconnect',
+              label: 'Disconnect',
+              icon: <X size={12} />,
+              danger: true,
+            },
+          ]}
+          onSelect={(id) => {
+            const { session } = contextMenu
+            switch (id) {
+              case 'clone':
+                handleCloneSession(session)
+                break
+              case 'reconnect':
+                void handleReconnectSession(session)
+                break
+              case 'save-profile':
+                void handleSaveAsProfile(session)
+                break
+              case 'disconnect':
+                void handleDisconnectSession(session.sessionId)
+                break
+            }
+            setContextMenu(null)
+          }}
+          onClose={() => setContextMenu(null)}
         />
       ) : null}
     </div>
